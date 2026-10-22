@@ -1,0 +1,238 @@
+/* Concat Bridge popup. Colors are tokens on :root, redefined for dark mode from
+   the system setting, so the popup follows the browser's theme. */
+:root {
+  --bg: #ffffff;
+  --fg: #1d2330;
+  --muted: #5b6475;
+  --line: #e2e6ee;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --field: #f6f8fb;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1f27;
+    --fg: #e6e9ef;
+    --muted: #9aa3b2;
+    --line: #2d333f;
+    --accent: #5b8cff;
+    --accent-fg: #0b1222;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --field: #141821;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #1b1f27;
+  --fg: #e6e9ef;
+  --muted: #9aa3b2;
+  --line: #2d333f;
+  --accent: #5b8cff;
+  --accent-fg: #0b1222;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --field: #141821;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  width: 340px;
+  padding: 14px 16px 16px;
+}
+
+header {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+h1 {
+  font-size: 15px;
+  margin: 0;
+}
+
+h2 {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+section {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.version,
+.note,
+.hint {
+  color: var(--muted);
+}
+
+.version {
+  font-size: 12px;
+}
+
+.hint {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.note {
+  font-size: 12px;
+}
+
+.status {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.status[data-state="ok"] {
+  color: var(--ok);
+}
+
+.status[data-state="unpaired"] {
+  color: var(--warn);
+}
+
+.status[data-state="offline"] {
+  color: var(--bad);
+}
+
+form {
+  display: grid;
+  gap: 8px;
+}
+
+label {
+  display: grid;
+  font-size: 12px;
+  gap: 3px;
+  color: var(--muted);
+}
+
+input {
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.token-row {
+  display: flex;
+  gap: 6px;
+}
+
+.token-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  background: var(--accent);
+  border: 0;
+  border-radius: 6px;
+  color: var(--accent-fg);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 12px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 500;
+  padding: 5px 8px;
+}
+
+.sites {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sites li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.site-name {
+  font-weight: 500;
+}
+
+.error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.error.has-error {
+  color: var(--bad);
+}
+
+.check {
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+}
+
+.check dt {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.check dt:first-child {
+  margin-top: 0;
+}
+
+.check dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+[hidden] {
+  display: none !important;
+}

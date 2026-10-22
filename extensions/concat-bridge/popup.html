@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Concat Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Concat Bridge</h1>
+    <span class="version" id="version"></span>
+  </header>
+
+  <section>
+    <h2>Concat</h2>
+    <p class="status" id="concat">Checking…</p>
+    <p class="hint" id="concat-hint"></p>
+  </section>
+
+  <section>
+    <h2>Pairing</h2>
+    <form id="pair-form" autocomplete="off">
+      <label>
+        Port
+        <input id="port" type="number" min="1" max="65535" inputmode="numeric" placeholder="47615">
+      </label>
+      <label>
+        Token
+        <span class="token-row">
+          <input id="token" type="password" spellcheck="false" placeholder="from Concat's settings">
+          <button type="button" class="ghost" id="toggle-token" aria-label="Show or hide the token">Show</button>
+        </span>
+      </label>
+      <div class="actions">
+        <button type="submit" id="save">Save</button>
+        <span class="note" id="save-note"></span>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Pages</h2>
+    <ul class="sites">
+      <li><span class="site-name">Google Flow</span><span id="flow">–</span></li>
+      <li><span class="site-name">ChatGPT</span><span id="chatgpt-web">–</span></li>
+    </ul>
+    <p class="hint">Keep a signed-in Flow project or a chatgpt.com chat open. The page must stay open while a job runs.</p>
+  </section>
+
+  <section>
+    <h2>Last error</h2>
+    <p class="error" id="last-error">None</p>
+  </section>
+
+  <section>
+    <h2>This page</h2>
+    <button type="button" id="check">Check this page</button>
+    <dl class="check" id="check-out" hidden></dl>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -73,10 +73,15 @@ const MAX_LINE: usize = 8 * 1024;
 const MAX_HEAD: usize = 64 * 1024;
 /// The most header lines accepted.
 const MAX_HEADERS: usize = 100;
-/// The CORS headers every answer carries, the preflight included.
+/// The CORS headers every answer carries, the preflight included. The last
+/// is Chrome's Private Network Access: a page on the public web may only
+/// reach 127.0.0.1 when the preflight says so. The extension calls from
+/// its own worker, which needs none of this, but a content script that
+/// calls directly still works.
 const CORS: &str = "Access-Control-Allow-Origin: *\r\n\
 Access-Control-Allow-Headers: Content-Type, X-Concat-Token, X-File-Name, X-Index\r\n\
-Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
+Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+Access-Control-Allow-Private-Network: true\r\n";
 
 /// A generation job as the extension receives it: what to make, and for which site.
 #[derive(Clone, Debug)]

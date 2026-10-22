@@ -1,0 +1,12 @@
+{
+  "name": "concat-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome MV3 extension that lets the Concat desktop editor use the browser's Flow and ChatGPT sessions. No dependencies; this file only tells Node that lib/ and test/ are ES modules.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "check": "node --check background.js && node --check lib/protocol.js && node --check popup.js && node --check sites/common.js && node --check sites/flow.js && node --check sites/chatgpt.js && node --check tools/make-icons.mjs"
+  },
+  "license": "AGPL-3.0-or-later"
+}
