@@ -429,6 +429,28 @@ pub fn category_label(category: &str) -> String {
     }
 }
 
+/// Where a library file's copy goes in a project's `folder`: under the
+/// file's own name, or - when a file of that name is there and is another
+/// size, so not this one - under the first numbered name free or holding
+/// this one. The same file used twice finds its first copy.
+pub fn copy_target(folder: &Path, path: &Path, name: &str, size: u64) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_owned());
+    let extension = path
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+    let mut target = folder.join(format!("{stem}{extension}"));
+    let mut n = 2;
+    while target.exists() && std::fs::metadata(&target).map(|meta| meta.len()).ok() != Some(size) {
+        target = folder.join(format!("{stem} {n}{extension}"));
+        n += 1;
+    }
+    target
+}
+
 /// A file's name, for a notice.
 fn display_name(path: &Path) -> String {
     path.file_name()
@@ -549,12 +571,25 @@ impl Studio {
         }
     }
 
-    /// Lays a library sound on the timeline: copied into the project's
-    /// folder and imported into the bin first - once; a second use finds
-    /// the copy already there - then cut onto `track_id` at `start`, or at
-    /// `start` on the first lane with room. Selects what it made.
+    /// Lays a library sound on the timeline; see [`Studio::place_file`].
     pub fn place_sound(&mut self, name: &str, path: &Path, track_id: Option<String>, start: f64) {
-        let media_id = match self.adopt_sound(name, path) {
+        self.place_file(name, path, "audio", track_id, start);
+    }
+
+    /// Lays a file from one of the libraries on the timeline - a sound,
+    /// a picture, a video: copied into the project's `folder` and imported
+    /// into the bin first - once; a second use finds the copy already
+    /// there - then cut onto `track_id` at `start`, or at `start` on the
+    /// first lane with room. Selects what it made.
+    pub fn place_file(
+        &mut self,
+        name: &str,
+        path: &Path,
+        folder: &str,
+        track_id: Option<String>,
+        start: f64,
+    ) {
+        let media_id = match self.adopt_file(name, path, folder) {
             Ok(id) => id,
             Err(error) => {
                 self.notify(&error, true);
@@ -577,36 +612,26 @@ impl Studio {
         }
     }
 
-    /// The bin's id for a library sound in this project: its copy in the
-    /// project's `audio` folder, made and imported when it is not there
-    /// yet. A file of that name that is not this sound - another size -
-    /// leaves it alone and the copy takes a numbered name.
-    fn adopt_sound(&mut self, name: &str, path: &Path) -> Result<String, String> {
+    /// The bin's id for a library file in this project: its copy in the
+    /// project's `folder` - `audio` for a sound, `assets` for a picture or
+    /// a video - made and imported when it is not there yet. A file of
+    /// that name that is not this one - another size - leaves it alone and
+    /// the copy takes a numbered name.
+    fn adopt_file(&mut self, name: &str, path: &Path, folder: &str) -> Result<String, String> {
         let project = self
             .session
             .as_ref()
             .map(|session| PathBuf::from(session.path()))
             .ok_or_else(|| t("sounds.openProjectFirst"))?;
-        let folder = project.join("audio");
+        let folder = project.join(folder);
         let size = std::fs::metadata(path)
             .map_err(|error| format!("{}: {error}", path.display()))?
             .len();
-        let stem = path
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_else(|| name.to_owned());
+        let target = copy_target(&folder, path, name, size);
         let extension = path
             .extension()
             .map(|extension| format!(".{}", extension.to_string_lossy()))
             .unwrap_or_default();
-        let mut target = folder.join(format!("{stem}{extension}"));
-        let mut n = 2;
-        while target.exists()
-            && std::fs::metadata(&target).map(|meta| meta.len()).ok() != Some(size)
-        {
-            target = folder.join(format!("{stem} {n}{extension}"));
-            n += 1;
-        }
         let target_text = target.to_string_lossy().into_owned();
         if let Some(item) = self
             .project()
@@ -634,5 +659,49 @@ impl Studio {
                     .map(|item| item.id.clone())
             })
             .ok_or_else(|| tf("sounds.couldNotCopy", &[&name, &"?"]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_target;
+
+    /// A copy keeps the library file's name; a different file of that
+    /// name already there pushes it to a numbered one, and the same file
+    /// again finds the copy it made.
+    #[test]
+    fn a_copy_takes_a_free_name_or_its_own() {
+        let folder = std::env::temp_dir().join(format!(
+            "concat-copy-target-{}-{}",
+            std::process::id(),
+            concat_host::generate::random_hex(6)
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let source = std::path::Path::new("/library/ab12.png");
+        assert_eq!(
+            copy_target(&folder, source, "A cat", 10),
+            folder.join("ab12.png")
+        );
+        std::fs::write(folder.join("ab12.png"), [0u8; 10]).unwrap();
+        assert_eq!(
+            copy_target(&folder, source, "A cat", 10),
+            folder.join("ab12.png"),
+            "the same size is the same file, already copied"
+        );
+        assert_eq!(
+            copy_target(&folder, source, "A cat", 11),
+            folder.join("ab12 2.png")
+        );
+        std::fs::write(folder.join("ab12 2.png"), [0u8; 12]).unwrap();
+        assert_eq!(
+            copy_target(&folder, source, "A cat", 11),
+            folder.join("ab12 3.png")
+        );
+        let bare = std::path::Path::new("/library/noextension");
+        assert_eq!(
+            copy_target(&folder, bare, "x", 1),
+            folder.join("noextension")
+        );
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 }

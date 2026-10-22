@@ -16,6 +16,7 @@
 
 pub mod captions;
 pub mod export;
+pub mod generate;
 pub mod glide;
 pub mod media_bin;
 pub mod monitor;
@@ -56,6 +57,8 @@ pub enum Msg {
     Voiceover(voiceover::VoiceoverMsg),
     /// To the library's Audio page.
     Sounds(sounds::SoundsMsg),
+    /// To the library's AI page and Settings › AI & cloud.
+    Generate(generate::GenerateMsg),
 }
 
 /// What a message says in the log: the activity trail of what the person
@@ -68,6 +71,7 @@ pub enum Msg {
 pub fn activity(msg: &Msg) -> Option<Activity> {
     use captions::CaptionsMsg;
     use export::ExportMsg;
+    use generate::GenerateMsg;
     use log::Level::{Debug, Info};
     use media_bin::MediaMsg;
     use monitor::MonitorMsg;
@@ -87,8 +91,40 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
         | Msg::Export(ExportMsg::Progress { .. })
         | Msg::Captions(CaptionsMsg::Progress(_))
         | Msg::Speech(SpeechMsg::Progress(_))
-        | Msg::Settings(SettingsMsg::ModelProgress { .. } | SettingsMsg::InstallProgress { .. }) => {
+        | Msg::Settings(SettingsMsg::ModelProgress { .. } | SettingsMsg::InstallProgress { .. })
+        // A job's ticks, and the lists and shelves read back: nothing the
+        // person did, and a model list is a page long.
+        | Msg::Generate(
+            GenerateMsg::Progress(..)
+            | GenerateMsg::SyncProgress(..)
+            | GenerateMsg::ModelsLoaded(..)
+            | GenerateMsg::Took(..)
+            | GenerateMsg::SettingsShown,
+        ) => {
             return None;
+        }
+        // A prompt is the person's words, and an address is theirs: the
+        // trail says what happened, not what was asked for or by whom.
+        Msg::Generate(GenerateMsg::Start) => {
+            return Some(Activity::once(Info, "generate: asked"));
+        }
+        Msg::Generate(GenerateMsg::Finished(_, Ok(added))) => {
+            return Some(Activity::once(
+                Info,
+                format!("generate: finished, {added} added"),
+            ));
+        }
+        Msg::Generate(GenerateMsg::DriveConnected(result)) => {
+            return Some(Activity::once(
+                Info,
+                match result {
+                    Ok(_) => "generate: Google Drive connected".to_owned(),
+                    Err(error) => format!("generate: Google Drive not connected, {error}"),
+                },
+            ));
+        }
+        Msg::Generate(GenerateMsg::Rename(..)) => {
+            return Some(Activity::once(Info, "generate: Rename"));
         }
         // A wheel tick that zooms by nothing - a trackpad's idle events -
         // did nothing, and says nothing.

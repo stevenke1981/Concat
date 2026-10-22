@@ -126,15 +126,20 @@ impl Studio {
         self.request_preview();
     }
 
-    /// A card on the Audio page was clicked: its sound plays through the
-    /// speakers as a sound from the bin does, without being in the bin, or
-    /// pauses when it is the one playing. `card` names it for its card's
-    /// playing line.
+    /// A card on the Audio page or the AI page was clicked: a sound plays
+    /// through the speakers as a sound from the bin does, without being in
+    /// the bin, or pauses when it is the one playing; a picture or a video
+    /// goes on the monitor, paused at its start, as one from the bin does.
+    /// `card` names it for its card's playing line.
     pub fn preview_file(&mut self, card: &str, name: &str, path: &std::path::Path) {
         if let Some(source) = self.source.as_ref()
             && source.card == card
         {
-            self.source_toggle();
+            // A second click plays or pauses what moves; a still has
+            // nothing to play.
+            if source.kind != MediaKind::Image {
+                self.source_toggle();
+            }
             return;
         }
         let Some(project_dir) = self
@@ -157,14 +162,12 @@ impl Studio {
         scratch.media.retain(|item| item.path != summary.path);
         let mut mint = IdMint::default();
         mint.adopt_project(&scratch);
-        let Ok(Some(media_id)) = commands::apply(
-            &mut scratch,
-            &mut mint,
-            Command::AddMedia {
-                item: summary.to_new_media(),
-            },
-        )
-        .map(|outcome| outcome.created_id) else {
+        let item = summary.to_new_media();
+        let kind = item.kind;
+        let Ok(Some(media_id)) =
+            commands::apply(&mut scratch, &mut mint, Command::AddMedia { item })
+                .map(|outcome| outcome.created_id)
+        else {
             return;
         };
         let Some(scratch) = self::scratch(&scratch, &media_id) else {
@@ -191,7 +194,7 @@ impl Studio {
         self.source = Some(Source {
             media_id,
             name: name.to_owned(),
-            kind: MediaKind::Audio,
+            kind,
             row: -1,
             card: card.to_owned(),
             clips,
@@ -200,7 +203,9 @@ impl Studio {
             playing: false,
             timer: slint::Timer::default(),
         });
-        self.source_toggle();
+        if kind == MediaKind::Audio {
+            self.source_toggle();
+        }
         self.request_preview();
     }
 

@@ -243,6 +243,11 @@ impl SettingsPane {
             SettingsMsg::Open => {
                 self.refresh(studio);
                 self.open = true;
+                if self.tab == crate::panes::generate::SETTINGS_PAGE {
+                    studio.handle(Msg::Generate(
+                        crate::panes::generate::GenerateMsg::SettingsShown,
+                    ));
+                }
             }
             SettingsMsg::Close => {
                 // A row left listening when the sheet goes would take
@@ -258,6 +263,13 @@ impl SettingsPane {
                 // without a press; the button looks again.
                 if index == VERSION_PAGE && !self.checked {
                     self.check_updates();
+                }
+                // The AI & cloud page says how the Codex command line
+                // stands, which takes asking.
+                if index == crate::panes::generate::SETTINGS_PAGE {
+                    studio.handle(Msg::Generate(
+                        crate::panes::generate::GenerateMsg::SettingsShown,
+                    ));
                 }
             }
             SettingsMsg::ShortcutCapture(id) => self.capturing = Some(id),

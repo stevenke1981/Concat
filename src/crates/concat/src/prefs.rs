@@ -133,6 +133,117 @@ pub struct Preferences {
     /// by Settings › Shortcuts; resolved in [`crate::keymap`].
     #[serde(default)]
     pub keybinds: BTreeMap<String, String>,
+    /// The Library's AI page and Settings › AI & cloud: who makes the
+    /// pictures, with what, and the browser bridge and Google Drive.
+    #[serde(default)]
+    pub ai: AiPrefs,
+}
+
+/// The AI page's choices and the accounts behind them, kept from one run to
+/// the next.
+///
+/// The OpenRouter key, the Google client's secret and the bridge's pairing
+/// token are kept here, in plain `settings.json` beside the rest, readable
+/// by the person's own account and no other on a desk that keeps its users
+/// apart. That is where the Automation page keeps its token too: the file
+/// is the app's private configuration, never shared or synced by Concat,
+/// and a system keychain would be one more platform seam for three short
+/// strings. The Google sign-in itself - the tokens that reach the Drive -
+/// is not here: `concat_host::drive::save_tokens` keeps it in a file of its
+/// own. None of the three secrets is ever logged: `Debug` redacts them.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiPrefs {
+    /// Who makes the pictures: a `Provider::id()`. Empty, or a name no
+    /// longer known, is OpenRouter.
+    pub provider: String,
+    /// The person's OpenRouter key. Secret.
+    pub openrouter_key: String,
+    /// The OpenRouter picture model, as OpenRouter names it; empty is the
+    /// host's default.
+    pub image_model: String,
+    /// The OpenRouter video model; empty is the host's default.
+    pub video_model: String,
+    /// "16:9", "9:16", "1:1", or empty for the provider's own choice.
+    pub aspect_ratio: String,
+    /// Seconds of video; 0 is the provider's default.
+    pub video_seconds: u32,
+    /// The Codex program, when it is not the `codex` on `PATH`.
+    pub codex_program: Option<String>,
+    /// Serve the browser bridge while the window is open. Off by default: a
+    /// port open on this computer is a thing the person asks for.
+    pub bridge_enabled: bool,
+    /// Where the bridge listens on loopback.
+    pub bridge_port: u16,
+    /// What the Concat Bridge extension presents: 32 hex digits, made the
+    /// first time the bridge is turned on. Secret.
+    pub bridge_token: String,
+    /// The person's own Google OAuth client, for Drive sync.
+    pub drive_client_id: String,
+    /// Its secret. Secret, as far as a desktop client's can be.
+    pub drive_client_secret: String,
+    /// Sync the asset library with Google Drive after every generation.
+    pub drive_auto_sync: bool,
+}
+
+impl Default for AiPrefs {
+    fn default() -> Self {
+        AiPrefs {
+            provider: String::new(),
+            openrouter_key: String::new(),
+            image_model: String::new(),
+            video_model: String::new(),
+            aspect_ratio: String::new(),
+            video_seconds: 0,
+            codex_program: None,
+            bridge_enabled: false,
+            bridge_port: concat_host::bridge::DEFAULT_PORT,
+            bridge_token: String::new(),
+            drive_client_id: String::new(),
+            drive_client_secret: String::new(),
+            drive_auto_sync: false,
+        }
+    }
+}
+
+impl std::fmt::Debug for AiPrefs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Whether a secret is set is worth seeing in a bug report; the
+        // secret is not.
+        let secret = |text: &str| if text.is_empty() { "" } else { "<redacted>" };
+        f.debug_struct("AiPrefs")
+            .field("provider", &self.provider)
+            .field("openrouter_key", &secret(&self.openrouter_key))
+            .field("image_model", &self.image_model)
+            .field("video_model", &self.video_model)
+            .field("aspect_ratio", &self.aspect_ratio)
+            .field("video_seconds", &self.video_seconds)
+            .field("codex_program", &self.codex_program)
+            .field("bridge_enabled", &self.bridge_enabled)
+            .field("bridge_port", &self.bridge_port)
+            .field("bridge_token", &secret(&self.bridge_token))
+            .field("drive_client_id", &self.drive_client_id)
+            .field("drive_client_secret", &secret(&self.drive_client_secret))
+            .field("drive_auto_sync", &self.drive_auto_sync)
+            .finish()
+    }
+}
+
+impl AiPrefs {
+    /// The provider chosen, OpenRouter when none is or the name is unknown.
+    pub fn provider(&self) -> concat_host::generate::Provider {
+        concat_host::generate::Provider::from_id(&self.provider).unwrap_or_default()
+    }
+
+    /// The pairing token, made now if the bridge never had one. Returns
+    /// whether it was made, so the caller knows to save.
+    pub fn ensure_bridge_token(&mut self) -> bool {
+        if self.bridge_token.len() >= 32 {
+            return false;
+        }
+        self.bridge_token = concat_host::generate::random_hex(32);
+        true
+    }
 }
 
 /// The voiceover panel's choices, kept from one take to the next and one
@@ -595,6 +706,73 @@ mod tests {
         assert!(!chosen.settle_start(false, "b"));
         assert!(chosen.draws_in_software());
         assert_eq!(chosen.software_after_crash, None);
+    }
+
+    /// A file from before the AI page loads with its defaults: OpenRouter,
+    /// the bridge off on its usual port, nothing synced; and what is saved
+    /// reads back, under camelCase keys.
+    #[test]
+    fn ai_preferences_default_and_round_trip() {
+        let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
+        assert_eq!(older.ai, AiPrefs::default());
+        assert_eq!(
+            older.ai.provider(),
+            concat_host::generate::Provider::OpenRouter
+        );
+        assert!(!older.ai.bridge_enabled);
+        assert!(!older.ai.drive_auto_sync);
+        assert_eq!(older.ai.bridge_port, concat_host::bridge::DEFAULT_PORT);
+
+        let mut prefs = Preferences::default();
+        prefs.ai.provider = "flow".into();
+        prefs.ai.video_seconds = 8;
+        prefs.ai.bridge_enabled = true;
+        let text = serde_json::to_string(&prefs).unwrap();
+        assert!(text.contains("\"videoSeconds\":8"), "{text}");
+        assert!(text.contains("\"bridgeEnabled\":true"), "{text}");
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.ai, prefs.ai);
+        assert_eq!(back.ai.provider(), concat_host::generate::Provider::Flow);
+        let unknown = AiPrefs {
+            provider: "nobody".into(),
+            ..AiPrefs::default()
+        };
+        assert_eq!(
+            unknown.provider(),
+            concat_host::generate::Provider::OpenRouter
+        );
+    }
+
+    /// Neither the key, the client's secret nor the pairing token reaches
+    /// a debug line, the preferences' own or the whole file's.
+    #[test]
+    fn ai_secrets_never_reach_debug_output() {
+        let mut prefs = Preferences::default();
+        prefs.ai.openrouter_key = "sk-or-v1-supersecret".into();
+        prefs.ai.drive_client_secret = "GOCSPX-hush".into();
+        prefs.ai.bridge_token = "0123456789abcdef0123456789abcdef".into();
+        prefs.ai.drive_client_id = "client.apps.googleusercontent.com".into();
+        let text = format!("{prefs:?}");
+        assert!(!text.contains("supersecret"), "{text}");
+        assert!(!text.contains("hush"), "{text}");
+        assert!(!text.contains("0123456789abcdef"), "{text}");
+        assert!(text.contains("<redacted>"), "{text}");
+        assert!(
+            text.contains("client.apps.googleusercontent.com"),
+            "the client id is no secret"
+        );
+    }
+
+    /// The pairing token is made once, 32 hex digits, and then kept.
+    #[test]
+    fn the_bridge_token_is_made_once() {
+        let mut ai = AiPrefs::default();
+        assert!(ai.ensure_bridge_token());
+        assert_eq!(ai.bridge_token.len(), 32);
+        assert!(ai.bridge_token.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        let made = ai.bridge_token.clone();
+        assert!(!ai.ensure_bridge_token());
+        assert_eq!(ai.bridge_token, made);
     }
 
     /// The `softwareGpu` key 0.2.8 wrote is let go, safe start's and the

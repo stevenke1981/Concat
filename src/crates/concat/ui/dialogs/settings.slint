@@ -5,7 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
@@ -14,6 +14,7 @@ import { Select } from "../primitives/select.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 import { HairlineSplitter } from "../workspace/splitter.slint";
 import { Editor } from "../editor.slint";
+import { Generate } from "../workspace/generate-page.slint";
 
 // Settings: a fixed-height sheet with a column of pages down the side. The
 // model rows keep two things apart — a downloaded model is a *choice* and so
@@ -62,7 +63,7 @@ export struct ShortcutData {
 export struct SettingsData {
     open: bool,
     /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About,
-    /// 6 Version, 7 Shortcuts
+    /// 6 Version, 7 Shortcuts, 8 AI & cloud
     tab: int,
     language: int,
     /// what the log records: 0 errors only, 1 warnings, 2 normal, 3
@@ -683,6 +684,9 @@ export component SettingsDialog inherits Modal {
         {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2, desk: false},
         {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3, desk: false},
         {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4, desk: true},
+        // The accounts the Library's AI page works with. A desk's: the
+        // bridge and the Codex command line are a desk's affair.
+        {label: I18n.t("settings.aiAndCloud"), glyph: Glyph.wand, page: 8, desk: true},
         {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6, desk: true},
         {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5, desk: false},
     ];
@@ -711,9 +715,18 @@ export component SettingsDialog inherits Modal {
     /// Copy was pressed a moment ago: its mark is a tick for a second
     /// and a half, so the press is seen to have worked.
     property <bool> token-copied;
+    /// The AI & cloud page's secrets, shown in clear rather than as dots,
+    /// and its pairing token's Copy, as the Automation page's are.
+    property <bool> key-shown;
+    property <bool> secret-shown;
+    property <bool> pairing-shown;
+    property <bool> pairing-copied;
     changed open => {
         if (!root.open) {
             root.token-shown = false;
+            root.key-shown = false;
+            root.secret-shown = false;
+            root.pairing-shown = false;
         }
     }
 
@@ -1434,6 +1447,350 @@ export component SettingsDialog inherits Modal {
                             triggered => { root.token-copied = false; }
                         }
                     }
+                }
+            }
+
+            // AI & cloud: the accounts the Library's AI page works with.
+            // Each provider is a section of its own, and says whether it is
+            // ready: a key, a signed-in Codex, an extension that has
+            // called in. Google Drive keeps the Assets shelf in a second
+            // place.
+            if root.data.tab == 8 && !root.phone: VerticalLayout {
+                DialogSection {
+                    ruled: false;
+                    first: true;
+                    title: I18n.t("settings.openRouter");
+                    hint: I18n.t("settings.openRouterHint");
+
+                    DialogRow {
+                        label: I18n.t("settings.apiKey");
+                        Field {
+                            value: Generate.openrouter-key;
+                            placeholder: "sk-or-…";
+                            technical: true;
+                            secret: !root.key-shown;
+                            edited(text) => { Generate.openrouter-key-edited(text); }
+                        }
+                        Button {
+                            square: true;
+                            glyph: root.key-shown ? Glyph.eye-off : Glyph.eye;
+                            label: root.key-shown ? I18n.t("settings.hideTheKey") : I18n.t("settings.showTheKey");
+                            clicked => { root.key-shown = !root.key-shown; }
+                        }
+                    }
+                    DialogRow {
+                        label: I18n.t("settings.pictureModel");
+                        Field {
+                            value: Generate.image-model;
+                            placeholder: "google/gemini-3.1-flash-image";
+                            technical: true;
+                            edited(text) => { Generate.image-model-edited(text); }
+                        }
+                    }
+                    DialogRow {
+                        label: I18n.t("settings.videoModel");
+                        Field {
+                            value: Generate.video-model;
+                            placeholder: "google/veo-3.1-fast";
+                            technical: true;
+                            edited(text) => { Generate.video-model-edited(text); }
+                        }
+                    }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.chatGptCodex");
+                    hint: I18n.t("settings.chatGptCodexHint");
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: self.width / 2;
+                                background: Generate.codex-state == 1 ? Theme.green
+                                    : Generate.codex-state == 2 ? Theme.accent
+                                    : Generate.codex-state >= 3 ? Theme.danger
+                                    : Theme.fg-dim;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: Generate.codex-status;
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                label: Generate.codex-checking ? I18n.t("settings.checking")
+                                    : I18n.t("settings.checkAgain");
+                                enabled: !Generate.codex-checking;
+                                clicked => { Generate.codex-check(); }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: I18n.t("settings.codexInstallHint");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.browserBridge");
+                    hint: I18n.t("settings.browserBridgeHint");
+                    switchable: true;
+                    on: Generate.bridge-enabled;
+                    switched(on) => { Generate.bridge-enabled-changed(on); }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: self.width / 2;
+                                background: Generate.bridge-state == 1 ? Theme.green
+                                    : Generate.bridge-state == 2 ? Theme.danger
+                                    : Theme.fg-dim;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: Generate.bridge-status;
+                            color: Generate.bridge-state == 2 ? Theme.danger : Theme.fg-muted;
+                            font-family: Generate.bridge-state == 1 ? Theme.font-technical : Theme.font;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    DialogRow {
+                        label: I18n.t("settings.port");
+                        NumberField {
+                            width: 88px;
+                            horizontal-stretch: 0;
+                            value: Generate.bridge-port;
+                            minimum: 1024;
+                            maximum: 65535;
+                            step: 1;
+                            precision: 0;
+                            changed(port) => { Generate.bridge-port-edited(port); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+
+                    // The pairing token: what the extension's popup is
+                    // given. Read-only - Concat makes it - and dots until
+                    // asked, the way the Automation page's is.
+                    DialogRow {
+                        label: I18n.t("settings.token");
+                        Rectangle {
+                            min-height: 28px;
+                            max-height: 28px;
+                            horizontal-stretch: 1;
+                            border-radius: Theme.r;
+                            background: Theme.well;
+                            clip: true;
+
+                            TextInput {
+                                x: 10px;
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width - 20px;
+                                height: self.preferred-height;
+                                text: Generate.bridge-token;
+                                input-type: root.pairing-shown ? InputType.text : InputType.password;
+                                read-only: true;
+                                single-line: true;
+                                color: Theme.fg;
+                                font-family: Theme.font-technical;
+                                font-size: Theme.fs;
+                                selection-background-color: Theme.accent;
+                                selection-foreground-color: Theme.on-accent;
+                            }
+
+                            // What Copy copies from: the token, out of
+                            // sight, in clear whether or not it is shown.
+                            pairing-copy := TextInput {
+                                x: 0;
+                                y: 0;
+                                width: 1px;
+                                height: 1px;
+                                opacity: 0;
+                                text: Generate.bridge-token;
+                                read-only: true;
+                            }
+
+                            Timer {
+                                interval: 1500ms;
+                                running: root.pairing-copied;
+                                triggered => { root.pairing-copied = false; }
+                            }
+                        }
+                        Button {
+                            square: true;
+                            glyph: root.pairing-shown ? Glyph.eye-off : Glyph.eye;
+                            label: root.pairing-shown ? I18n.t("settings.hideTheToken") : I18n.t("settings.showTheToken");
+                            clicked => { root.pairing-shown = !root.pairing-shown; }
+                        }
+                        Button {
+                            square: true;
+                            glyph: root.pairing-copied ? Glyph.check : Glyph.copy;
+                            label: I18n.t("settings.copyTheToken");
+                            enabled: Generate.bridge-token != "";
+                            clicked => {
+                                pairing-copy.select-all();
+                                pairing-copy.copy();
+                                root.pairing-copied = true;
+                            }
+                        }
+                        Button {
+                            glyph: Glyph.reset;
+                            label: I18n.t("settings.newToken");
+                            clicked => { Generate.bridge-token-regenerated(); }
+                        }
+                    }
+
+                    // Which pages have called in: a green dot for a site
+                    // whose tab polled within the last forty seconds.
+                    for site in [
+                        { name: I18n.t("settings.googleFlow"), on: Generate.flow-connected },
+                        { name: I18n.t("settings.chatGptWeb"), on: Generate.chatgpt-connected },
+                    ]: HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: self.width / 2;
+                                background: site.on ? Theme.green : Theme.fg-dim;
+                            }
+                        }
+                        Text {
+                            text: site.name;
+                            color: Theme.fg;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: site.on ? I18n.t("settings.siteConnected") : I18n.t("settings.siteNotConnected");
+                            color: Theme.fg-dim;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+
+                    Text {
+                        text: I18n.t("settings.loadTheExtension");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.googleDrive");
+                    hint: I18n.t("settings.googleDriveHint");
+
+                    DialogRow {
+                        label: I18n.t("settings.clientId");
+                        Field {
+                            value: Generate.drive-client-id;
+                            placeholder: "….apps.googleusercontent.com";
+                            technical: true;
+                            edited(text) => { Generate.drive-client-id-edited(text); }
+                        }
+                    }
+                    DialogRow {
+                        label: I18n.t("settings.clientSecret");
+                        Field {
+                            value: Generate.drive-client-secret;
+                            placeholder: "GOCSPX-…";
+                            technical: true;
+                            secret: !root.secret-shown;
+                            edited(text) => { Generate.drive-client-secret-edited(text); }
+                        }
+                        Button {
+                            square: true;
+                            glyph: root.secret-shown ? Glyph.eye-off : Glyph.eye;
+                            label: root.secret-shown ? I18n.t("settings.hideTheKey") : I18n.t("settings.showTheKey");
+                            clicked => { root.secret-shown = !root.secret-shown; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: self.width / 2;
+                                background: Generate.drive-state == 2 ? Theme.green
+                                    : Generate.drive-error != "" ? Theme.danger
+                                    : Theme.fg-dim;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: Generate.drive-error != "" ? Generate.drive-error
+                                : Generate.drive-state == 2
+                                ? (Generate.drive-email != ""
+                                    ? I18n.t1("settings.driveConnectedAs", Generate.drive-email)
+                                    : I18n.t("settings.driveConnected"))
+                                : Generate.drive-state == 1 ? I18n.t("settings.driveSigningIn")
+                                : I18n.t("settings.driveNotConnected");
+                            color: Generate.drive-error != "" ? Theme.danger : Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            if Generate.drive-state == 0: Button {
+                                label: I18n.t("settings.connect");
+                                enabled: Generate.drive-client-id != "";
+                                clicked => { Generate.drive-connect(); }
+                            }
+                            if Generate.drive-state == 1: Button {
+                                label: I18n.t("common.cancel");
+                                clicked => { Generate.drive-cancel(); }
+                            }
+                            if Generate.drive-state == 2: Button {
+                                label: I18n.t("settings.disconnect");
+                                clicked => { Generate.drive-disconnect(); }
+                            }
+                        }
+                    }
+                }
+
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.syncAfterEachGeneration");
+                    hint: I18n.t("settings.syncAfterEachGenerationHint");
+                    switchable: true;
+                    on: Generate.drive-auto-sync;
+                    open: false;
+                    switched(on) => { Generate.drive-auto-sync-changed(on); }
                 }
             }
 

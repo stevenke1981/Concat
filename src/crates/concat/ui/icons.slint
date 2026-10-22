@@ -165,6 +165,8 @@ export enum Glyph {
     // the cutout's brushes
     brush,
     eraser,
+    // the Library's AI page: a picture made from words
+    wand,
 }
 
 component Stroked inherits Path {
@@ -790,6 +792,14 @@ export component Icon inherits Rectangle {
         commands: "m11 10 3 3 M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708"
             + " 1.792A1 1 0 0 0 3 21z M9.969 17.031 21.378 5.624a1 1 0 0"
             + " 0-3.002-3.002L6.967 14.031";
+    }
+
+    // lucide/wand-sparkles
+    if root.glyph == Glyph.wand: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0"
+            + " 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"
+            + " M14 7l3 3 M5 6v4 M19 14v4 M10 2v2 M7 8H3 M21 16h-4 M11 3H9";
     }
 
     // lucide/eraser

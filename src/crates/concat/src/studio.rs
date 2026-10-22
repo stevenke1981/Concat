@@ -689,6 +689,13 @@ pub struct Models {
     pub sounds_concat: Rc<VecModel<crate::ui::SoundCardData>>,
     pub voices_builtin: Rc<VecModel<crate::ui::VoiceCardData>>,
     pub voice_styles: Rc<VecModel<crate::ui::VoiceCardData>>,
+    /// The AI page: the providers it offers, OpenRouter's models and
+    /// their ids, the jobs under way and the Assets shelf.
+    pub generate_providers: Rc<VecModel<SharedString>>,
+    pub generate_models: Rc<VecModel<SharedString>>,
+    pub generate_model_ids: Rc<VecModel<SharedString>>,
+    pub generate_jobs: Rc<VecModel<crate::ui::GenerateJobData>>,
+    pub assets: Rc<VecModel<crate::ui::AssetCardData>>,
     pub transcribers: Rc<VecModel<ModelData>>,
     pub voices: Rc<VecModel<ModelData>>,
     /// The Version page's releases, and beside each its day or that it
@@ -766,6 +773,11 @@ impl Models {
             sounds_mine: Rc::new(VecModel::default()),
             voices_saved: Rc::new(VecModel::default()),
             sounds_concat: Rc::new(VecModel::default()),
+            generate_providers: Rc::new(VecModel::default()),
+            generate_models: Rc::new(VecModel::default()),
+            generate_model_ids: Rc::new(VecModel::default()),
+            generate_jobs: Rc::new(VecModel::default()),
+            assets: Rc::new(VecModel::default()),
             voices_builtin: Rc::new(VecModel::default()),
             voice_styles: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
@@ -1010,6 +1022,9 @@ pub struct Studio {
     pub speech: crate::panes::speech::SpeechPane,
     /// The library's Audio page: the user's own sounds.
     pub sounds: crate::panes::sounds::SoundsPane,
+    /// The library's AI page and its Assets shelf, and the accounts
+    /// Settings › AI & cloud keeps for them.
+    pub generate: crate::panes::generate::GeneratePane,
     /// A file from the library lent the monitor and the speakers; see
     /// `crate::source`.
     pub source: Option<crate::source::Source>,
@@ -2394,6 +2409,7 @@ impl Studio {
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::with_saved(&host.dirs),
             sounds: crate::panes::sounds::SoundsPane::open(&host.dirs),
+            generate: crate::panes::generate::GeneratePane::open(&host.dirs),
             source: None,
             meters: crate::meters::MeterFeed::default(),
             voiceover: crate::panes::voiceover::VoiceoverPane::default(),
@@ -2425,6 +2441,9 @@ impl Studio {
         };
         studio.handle(crate::panes::Msg::Settings(
             crate::panes::settings::SettingsMsg::Restore,
+        ));
+        studio.handle(crate::panes::Msg::Generate(
+            crate::panes::generate::GenerateMsg::Restore,
         ));
         // The effects shelf starts on "All", not whatever a stale default
         // would leave it on.
@@ -3831,6 +3850,29 @@ impl Studio {
                     row: 0,
                 })
             }
+            // A picture or a video from the AI page's Assets shelf: like a
+            // sound, not in the bin yet, so its id rides in `media` behind
+            // `asset:`, and the drop copies it in and imports it.
+            "asset" => {
+                let (name, video, duration) = self.asset_summary(id)?;
+                Some(DropPlan {
+                    kind: if video {
+                        ClipKind::Video
+                    } else {
+                        ClipKind::Image
+                    },
+                    label: name,
+                    media: format!("asset:{id}"),
+                    start: 0.0,
+                    duration: if video {
+                        duration.unwrap_or(5.0) as f32
+                    } else {
+                        LAYER_DURATION
+                    }
+                    .max(MIN_DURATION),
+                    row: 0,
+                })
+            }
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
             "filter" => Some(DropPlan {
@@ -3891,6 +3933,10 @@ impl Studio {
             self.place_card(card, Some(track_id), f64::from(plan.start));
             return;
         }
+        if let Some(id) = plan.media.strip_prefix("asset:") {
+            self.place_asset(id, Some(track_id), f64::from(plan.start));
+            return;
+        }
         let created = if plan.kind == ClipKind::Text {
             self.add_title(
                 Some(track_id),
@@ -3946,6 +3992,10 @@ impl Studio {
         let start = f64::from(self.playhead.max(0.0));
         if let Some(card) = plan.media.strip_prefix("sound:") {
             self.place_card(card, None, start);
+            return;
+        }
+        if let Some(id) = plan.media.strip_prefix("asset:") {
+            self.place_asset(id, None, start);
             return;
         }
         let created = if plan.kind == ClipKind::Text {
@@ -8711,6 +8761,11 @@ impl Studio {
                 pane.update(msg, self);
                 self.sounds = pane;
             }
+            crate::panes::Msg::Generate(msg) => {
+                let mut pane = std::mem::take(&mut self.generate);
+                pane.update(msg, self);
+                self.generate = pane;
+            }
             crate::panes::Msg::Relink(msg) => {
                 let mut pane = std::mem::take(&mut self.relink);
                 pane.update(msg, self);
@@ -11317,6 +11372,8 @@ impl Studio {
         sync(&models.voices_builtin, builtin);
         sync(&models.voice_styles, styles);
         app.global::<crate::ui::Sounds>().set_voices_ready(ready);
+        // The AI page, its shelf, and Settings › AI & cloud.
+        self.generate.publish(self, app, models);
         self.publish_source(app);
         sync(&models.voiceover_devices, self.voiceover.device_rows());
         app.set_voiceover(self.voiceover.data(self));

@@ -14,6 +14,7 @@ import { Wave } from "../primitives/wave.slint";
 import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 import { SourcePreview } from "source-preview.slint";
 import { Sounds, SoundList, VoiceList } from "audio-page.slint";
+import { Generate, GeneratePage } from "generate-page.slint";
 
 export { SourcePreview }
 
@@ -1896,7 +1897,14 @@ export component MediaPane inherits Rectangle {
     property <int> tab;
     /// The Audio page is up, or not: a drop of sound files on the window
     /// goes into the library while it is.
-    changed tab => { Sounds.shown(root.tab == 8); }
+    changed tab => {
+        Sounds.shown(root.tab == 8);
+        Generate.shown(root.tab == 9);
+    }
+    /// The AI page's shelf: 0 = Generate (the form over the assets), 1 =
+    /// Assets alone.
+    property <int> ai-category;
+    property <bool> ai-open: true;
     /// The Audio page's shelf: 0 = Mine, 10 = Voices, 11 = Styles. 1 was
     /// Concat's own sounds, off the page until their list is published (#60).
     property <int> audio-category;
@@ -2033,6 +2041,14 @@ export component MediaPane inherits Rectangle {
                             label: I18n.t("common.audio");
                             current: root.tab == 8;
                             clicked => { root.tab = 8; }
+                        }
+                        // Beside Audio: what the person makes from words
+                        // sits with what they brought in.
+                        LibraryTab {
+                            glyph: Glyph.wand;
+                            label: I18n.t("generate.ai");
+                            current: root.tab == 9;
+                            clicked => { root.tab = 9; }
                         }
                         LibraryTab {
                             glyph: Glyph.text-mark;
@@ -2277,6 +2293,31 @@ export component MediaPane inherits Rectangle {
                             label: I18n.t("voices.styles");
                             current: root.audio-category == 11;
                             clicked => { root.audio-category = 11; }
+                        }
+                    }
+
+                    // AI: the form, and the shelf it fills.
+                    if root.tab == 9: VerticalLayout {
+                        spacing: 1px;
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("generate.ai");
+                            open: root.ai-open;
+                            toggled => { root.ai-open = !root.ai-open; }
+                        }
+                        if root.ai-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("generate.generate");
+                            count: Generate.jobs.length;
+                            current: root.ai-category == 0;
+                            clicked => { root.ai-category = 0; }
+                        }
+                        if root.ai-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("generate.assets");
+                            count: Generate.assets.length;
+                            current: root.ai-category == 1;
+                            clicked => { root.ai-category = 1; }
                         }
                     }
 
@@ -2636,6 +2677,11 @@ export component MediaPane inherits Rectangle {
                 if root.tab == 8 && root.audio-category == 0 && Sounds.mine.length == 0: Empty {
                     glyph: Glyph.music;
                     text: I18n.t("sounds.noSoundsYet");
+                }
+
+                // AI: the form over the Assets shelf, or the shelf alone.
+                if root.tab == 9: GeneratePage {
+                    form: root.ai-category == 0;
                 }
 
                 if root.tab == 1 && root.text-category == 0: HorizontalLayout {

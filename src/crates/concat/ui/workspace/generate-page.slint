@@ -1,0 +1,748 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme, Glyph, Icon, Payload, Fmt } from "../primitives/primitives.slint";
+import { Button, Field } from "../primitives/modal.slint";
+import { Select } from "../primitives/select.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { SourcePreview } from "source-preview.slint";
+
+// The library's AI page: pictures and video made from a prompt, and the
+// Assets shelf that keeps them, with what the person imports, across
+// projects.
+//
+// The form asks one provider at a time - OpenRouter with the person's key,
+// ChatGPT through the Codex command line, or a page in the person's own
+// browser driven by the Concat Bridge extension - and every job it starts
+// runs on its own, as a row with its own cancel, so a second prompt does
+// not wait for the first. What comes back lands on the shelf, where a card
+// is previewed, laid at the playhead or dragged onto the lanes the way a
+// sound on the Audio page is.
+//
+// One global for the page's data and verbs, and for the Settings sheet's
+// AI & cloud page, which edits the accounts the page works with.
+
+/// One picture or video on the Assets shelf.
+export struct AssetCardData {
+    /// The asset's id in the library: what a drag carries and what every
+    /// verb is given back.
+    id: string,
+    name: string,
+    video: bool,
+    /// The picture, or the video's first frame; empty until it is drawn.
+    thumb: image,
+    /// Who made it: "OpenRouter", "Flow", "Imported".
+    badge: string,
+    /// seconds; 0 for a still, or a video not read yet
+    duration: float,
+}
+
+/// One generation under way.
+export struct GenerateJobData {
+    id: int,
+    /// The first words of its prompt.
+    title: string,
+    /// "Waiting for the browser", "Rendering", "Downloading".
+    status: string,
+    /// How far, `0..=1`, or below zero when the provider does not say.
+    progress: float,
+}
+
+export global Generate {
+    // ── the form ──
+    /// The providers, by name, in the host's order.
+    in property <[string]> providers;
+    in property <int> provider;
+    /// The provider can make a video; the Video segment is off otherwise.
+    in property <bool> video-allowed;
+    /// 0 a picture, 1 a video.
+    in property <int> kind;
+    /// The provider takes a model name: OpenRouter, Flow.
+    in property <bool> model-shown;
+    in property <string> model;
+    /// What an empty model field means: the default it stands for.
+    in property <string> model-placeholder;
+    /// OpenRouter's models for the kind, by name, and their ids beside
+    /// them; empty until the list has been fetched.
+    in property <[string]> models;
+    in property <[string]> model-ids;
+    /// The listed model the field holds, or -1.
+    in property <int> model-choice: -1;
+    in property <bool> models-loading;
+    /// 0 the provider's own choice, 1 16:9, 2 9:16, 3 1:1.
+    in property <int> aspect;
+    /// Seconds of video; 0 the provider's default.
+    in property <int> seconds;
+    in property <string> prompt;
+    /// Why Generate cannot work yet - no key, Codex not signed in, the
+    /// extension not connected - or empty.
+    in property <string> hint;
+    /// The hint is fixed in Settings: it carries a button there.
+    in property <bool> hint-settings;
+    in property <bool> can-generate;
+    /// The jobs running, oldest first.
+    in property <[GenerateJobData]> jobs;
+    /// What the last job to end did: "Added 2 to Assets", or why not.
+    in property <string> status;
+    in property <bool> status-failed;
+
+    callback provider-changed(index: int);
+    callback kind-changed(index: int);
+    callback model-edited(text: string);
+    callback model-picked(index: int);
+    callback aspect-changed(index: int);
+    callback seconds-changed(seconds: int);
+    callback prompt-edited(text: string);
+    callback generate();
+    callback cancel(id: int);
+    /// Settings, on the AI & cloud page.
+    callback open-settings();
+    /// A library pane turned to the page or away from it: the model list is
+    /// fetched when it is first wanted, and a drop of pictures or videos on
+    /// the window goes onto the shelf while the page is up.
+    callback shown(on: bool);
+
+    // ── the Assets shelf ──
+    /// Newest first.
+    in property <[AssetCardData]> assets;
+    /// Files are being copied in.
+    in property <bool> importing;
+    /// 0 Google Drive not connected (the button opens Settings), 1
+    /// connected, 2 a sync running.
+    in property <int> sync-state;
+    /// What the last sync did, or how the one running is going.
+    in property <string> sync-status;
+    in property <float> sync-progress;
+
+    /// The Import button: the system's picker, for pictures and videos.
+    callback import();
+    /// A card clicked: on the monitor, as a file in the bin is shown.
+    callback preview(id: string);
+    /// A card's plus: onto the timeline at the playhead.
+    callback add(id: string);
+    callback remove(id: string);
+    callback rename(id: string, name: string);
+    /// "Sync with Google Drive".
+    callback sync();
+
+    // ── Settings › AI & cloud ──
+    in property <string> openrouter-key;
+    in property <string> image-model;
+    in property <string> video-model;
+    callback openrouter-key-edited(text: string);
+    callback image-model-edited(text: string);
+    callback video-model-edited(text: string);
+    /// "Ready · Codex 0.140.0", "Checking…", and what to do when not ready.
+    in property <string> codex-status;
+    /// 0 not checked or checking, 1 signed in with ChatGPT, 2 signed in
+    /// with an API key, 3 signed out, 4 not installed.
+    in property <int> codex-state;
+    in property <bool> codex-checking;
+    callback codex-check();
+    in property <bool> bridge-enabled;
+    in property <int> bridge-port;
+    in property <string> bridge-token;
+    /// "Listening on 127.0.0.1:47615", "Off", or why it could not start.
+    in property <string> bridge-status;
+    /// 0 off, 1 listening, 2 could not start: the status line's dot.
+    in property <int> bridge-state;
+    in property <bool> flow-connected;
+    in property <bool> chatgpt-connected;
+    callback bridge-enabled-changed(on: bool);
+    callback bridge-port-edited(port: int);
+    callback bridge-token-regenerated();
+    in property <string> drive-client-id;
+    in property <string> drive-client-secret;
+    /// 0 not connected, 1 signing in, 2 connected.
+    in property <int> drive-state;
+    in property <string> drive-email;
+    /// Why the last sign-in failed, or empty.
+    in property <string> drive-error;
+    in property <bool> drive-auto-sync;
+    callback drive-client-id-edited(text: string);
+    callback drive-client-secret-edited(text: string);
+    callback drive-connect();
+    callback drive-cancel();
+    callback drive-disconnect();
+    callback drive-auto-sync-changed(on: bool);
+}
+
+// A line under a form: a hint, a status, the shelf's how-to.
+component Note inherits Text {
+    color: Theme.fg-muted;
+    font-size: Theme.fs-sm;
+    wrap: word-wrap;
+}
+
+// A label over a control.
+component Label inherits Text {
+    color: Theme.fg-muted;
+    font-size: Theme.fs-sm;
+    font-weight: Theme.weight-title;
+}
+
+// A bar that says something is happening without saying how far: a short
+// fill that runs along the track, for a provider that reports no fraction.
+// A fraction, when there is one, fills it the ordinary way.
+component BusyBar inherits Rectangle {
+    /// `0..=1`, or below zero for "under way".
+    in property <float> value;
+
+    property <float> phase: Math.mod(animation-tick() / 1ms, 1400) / 1400;
+
+    height: 4px;
+    border-radius: self.height / 2;
+    background: Theme.well;
+    clip: true;
+
+    if root.value >= 0: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * Math.clamp(root.value, 0, 1);
+        height: parent.height;
+        border-radius: parent.border-radius;
+        background: Theme.accent;
+        animate width { duration: 280ms; easing: ease-out; }
+    }
+    if root.value < 0: Rectangle {
+        y: 0;
+        width: parent.width / 3;
+        x: (parent.width + self.width) * root.phase - self.width;
+        height: parent.height;
+        border-radius: parent.border-radius;
+        background: Theme.accent;
+    }
+}
+
+// One job under way: what it was asked for, how it is going, and its
+// cancel.
+component JobRow inherits Rectangle {
+    in property <GenerateJobData> job;
+
+    border-radius: Theme.r;
+    background: Theme.well;
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 2px;
+
+                Text {
+                    text: root.job.title;
+                    color: Theme.fg;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.job.status;
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    overflow: elide;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                Button {
+                    label: I18n.t("common.cancel");
+                    ghost: true;
+                    clicked => { Generate.cancel(root.job.id); }
+                }
+            }
+        }
+
+        BusyBar { value: root.job.progress; }
+    }
+}
+
+// What to make and who makes it, the Generate button, and the jobs under
+// way.
+export component GenerateForm inherits VerticalLayout {
+    spacing: 8px;
+
+    Label { text: I18n.t("generate.provider"); }
+    Select {
+        options: Generate.providers;
+        current: Generate.provider;
+        changed(index) => { Generate.provider-changed(index); }
+    }
+
+    SegmentedControl {
+        options: [I18n.t("generate.picture"), I18n.t("common.video")];
+        current: Generate.kind;
+        disabled: [false, !Generate.video-allowed];
+        changed(index) => { Generate.kind-changed(index); }
+    }
+
+    if Generate.model-shown: Label { text: I18n.t("generate.model"); }
+    if Generate.model-shown: HorizontalLayout {
+        spacing: 6px;
+
+        Field {
+            value: Generate.model;
+            placeholder: Generate.model-placeholder;
+            technical: true;
+            edited(text) => { Generate.model-edited(text); }
+        }
+        // The models OpenRouter lists for the kind, once fetched: a pick
+        // writes its id into the field beside it, which stays free text
+        // for a model the list does not have yet.
+        if Generate.models.length > 0 || Generate.models-loading: Select {
+            width: 128px;
+            horizontal-stretch: 0;
+            enabled: Generate.models.length > 0;
+            options: Generate.models;
+            details: Generate.model-ids;
+            current: Generate.model-choice;
+            placeholder: Generate.models-loading ? I18n.t("generate.loadingModels")
+                : I18n.t("generate.models");
+            changed(index) => { Generate.model-picked(index); }
+        }
+    }
+
+    Label { text: I18n.t("generate.aspectRatio"); }
+    SegmentedControl {
+        options: [I18n.t("generate.auto"), "16:9", "9:16", "1:1"];
+        current: Generate.aspect;
+        changed(index) => { Generate.aspect-changed(index); }
+    }
+
+    if Generate.kind == 1: HorizontalLayout {
+        spacing: 8px;
+
+        Label {
+            vertical-alignment: center;
+            text: I18n.t("generate.seconds");
+        }
+        NumberField {
+            width: 72px;
+            horizontal-stretch: 0;
+            value: Generate.seconds;
+            minimum: 0;
+            maximum: 60;
+            step: 1;
+            precision: 0;
+            changed(seconds) => { Generate.seconds-changed(seconds); }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: Generate.seconds == 0 ? I18n.t("generate.secondsDefault") : "";
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    Label { text: I18n.t("generate.prompt"); }
+    Rectangle {
+        height: 96px;
+        border-radius: Theme.r;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: words.has-focus ? Theme.accent : Theme.line;
+        clip: true;
+
+        words := TextInput {
+            x: 10px;
+            y: 8px;
+            width: parent.width - 20px;
+            height: parent.height - 16px;
+            text: Generate.prompt;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            single-line: false;
+            wrap: word-wrap;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+            edited => { Generate.prompt-edited(self.text); }
+            // Home and End are unbound in Slint on macOS and would walk
+            // up to the window's playhead shortcuts.
+            key-pressed(event) => {
+                if (event.text == Key.Home) {
+                    self.set-selection-offsets(0, 0);
+                    return accept;
+                }
+                if (event.text == Key.End) {
+                    self.set-selection-offsets(1000000000, 1000000000);
+                    return accept;
+                }
+                return reject;
+            }
+        }
+
+        if words.text == "" && !words.has-focus: Text {
+            x: 10px;
+            y: 8px;
+            width: parent.width - 20px;
+            text: Generate.kind == 1 ? I18n.t("generate.promptVideoPlaceholder")
+                : I18n.t("generate.promptPicturePlaceholder");
+            color: Theme.fg-dim;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+    }
+
+    // Why Generate will not work yet, with the way to fix it when the fix
+    // is in Settings.
+    if Generate.hint != "": Rectangle {
+        border-radius: Theme.r;
+        background: Theme.field;
+
+        HorizontalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: Glyph.info;
+                    size: 13px;
+                    tint: Theme.fg-muted;
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: Generate.hint;
+                color: Theme.fg;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+            if Generate.hint-settings: VerticalLayout {
+                alignment: center;
+                Button {
+                    label: I18n.t("common.settings");
+                    clicked => { Generate.open-settings(); }
+                }
+            }
+        }
+    }
+
+    Button {
+        block: true;
+        primary: true;
+        glyph: Glyph.wand;
+        label: Generate.kind == 1 ? I18n.t("generate.generateVideo")
+            : I18n.t("generate.generatePicture");
+        enabled: Generate.can-generate;
+        clicked => { Generate.generate(); }
+    }
+
+    if Generate.status != "": Text {
+        text: Generate.status;
+        color: Generate.status-failed ? Theme.danger : Theme.fg-muted;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+
+    for job in Generate.jobs: JobRow { job: job; }
+}
+
+// A small square button over a card: the plus, the bin, the pencil.
+component CardButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <bool> danger;
+    in property <bool> shown;
+    callback clicked();
+
+    width: 20px;
+    height: 20px;
+    border-radius: Theme.r-xs;
+    background: touch.has-hover ? (root.danger ? Theme.danger : Theme.accent) : Theme.scrim;
+    visible: root.shown || touch.has-hover;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: 11px;
+        tint: touch.has-hover ? Theme.on-accent : Theme.on-scrim;
+    }
+}
+
+// One asset: the picture or the video's first frame, its name, and who
+// made it. A click shows it on the monitor; a double-click or the plus lays
+// it at the playhead; a drag lays it on a lane. Under the pointer it offers
+// a rename and a removal from the library.
+component AssetCard inherits Rectangle {
+    in property <AssetCardData> item;
+    /// The name is being typed over.
+    in property <bool> renaming;
+
+    callback rename-asked();
+    callback rename-done();
+
+    property <string> payload: "asset:\{root.item.id}:\{root.item.name}";
+    property <bool> showing: SourcePreview.card == "asset-\{root.item.id}" && root.item.id != "";
+
+    opacity: drag.dragging ? 0.45 : 1.0;
+
+    drag := DragArea {
+        data: Payload.of(root.payload);
+        drag-image: Payload.preview(root.payload);
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+        allow-copy: true;
+
+        card := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { Generate.preview(root.item.id); }
+            double-clicked => { Generate.add(root.item.id); }
+
+            tile := Rectangle {
+                y: 0;
+                height: root.width * 9 / 16;
+                border-radius: Theme.r;
+                background: root.item.video ? Theme.kind-video-well : Theme.kind-image-well;
+                border-width: root.showing ? 2px : 1px;
+                border-color: root.showing ? Theme.accent
+                    : card.has-hover ? Theme.line-strong : Theme.line;
+                clip: true;
+
+                if root.item.thumb.width > 0: Image {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.item.thumb;
+                    image-fit: cover;
+                }
+
+                if root.item.thumb.width == 0: Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: root.item.video ? Glyph.film : Glyph.image;
+                    size: 22px;
+                    tint: root.item.video ? Theme.kind-video : Theme.kind-image;
+                }
+
+                // A video says so, and how long, in the corner a filmstrip
+                // would.
+                if root.item.video: Rectangle {
+                    x: 4px;
+                    y: parent.height - self.height - 4px;
+                    width: length.preferred-width + 8px;
+                    height: 16px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.scrim;
+
+                    length := Text {
+                        x: 4px;
+                        y: (parent.height - self.height) / 2;
+                        text: root.item.duration > 0 ? Fmt.short-duration(root.item.duration)
+                            : I18n.t("common.video");
+                        color: Theme.on-scrim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                    }
+                }
+
+                CardButton {
+                    x: parent.width - self.width - 4px;
+                    y: parent.height - self.height - 4px;
+                    glyph: Glyph.plus;
+                    shown: card.has-hover;
+                    clicked => { Generate.add(root.item.id); }
+                }
+                CardButton {
+                    x: parent.width - self.width - 4px;
+                    y: 4px;
+                    glyph: Glyph.trash;
+                    danger: true;
+                    shown: card.has-hover;
+                    clicked => { Generate.remove(root.item.id); }
+                }
+                CardButton {
+                    x: parent.width - 2 * self.width - 8px;
+                    y: 4px;
+                    glyph: Glyph.text-mark;
+                    shown: card.has-hover;
+                    clicked => { root.rename-asked(); }
+                }
+            }
+
+            if !root.renaming: Text {
+                x: 0;
+                y: tile.height + 4px;
+                width: root.width;
+                height: 14px;
+                text: root.item.name;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                x: 0;
+                y: tile.height + 18px;
+                width: root.width;
+                height: 12px;
+                text: root.item.badge;
+                color: Theme.fg-dim;
+                font-size: Theme.fs-xs;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    // The name typed over in place: Enter keeps it, Escape or a click
+    // elsewhere leaves it as it was.
+    if root.renaming: Rectangle {
+        x: 0;
+        y: tile.height + 2px;
+        width: root.width;
+        height: 18px;
+        border-radius: Theme.r-xs;
+        background: Theme.field;
+        border-width: 1px;
+        border-color: Theme.accent;
+
+        name := TextInput {
+            x: 4px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 8px;
+            height: self.preferred-height;
+            text: root.item.name;
+            color: Theme.fg;
+            font-size: Theme.fs-sm;
+            single-line: true;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted => {
+                Generate.rename(root.item.id, self.text);
+                root.rename-done();
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.rename-done();
+                    return accept;
+                }
+                return reject;
+            }
+            changed has-focus => {
+                if (!self.has-focus) {
+                    root.rename-done();
+                }
+            }
+        }
+    }
+}
+
+// The shelf's cards, as many across as fit.
+component AssetGrid inherits Rectangle {
+    in property <[AssetCardData]> items;
+    /// The card whose name is being typed over, by id.
+    property <string> renaming;
+
+    property <length> gap: 8px;
+    property <length> min-card: 96px;
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px + 12px;
+    property <int> rows: Math.ceil(root.items.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.items: AssetCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        item: entry;
+        renaming: root.renaming == entry.id;
+        rename-asked => { root.renaming = entry.id; }
+        rename-done => { root.renaming = ""; }
+    }
+}
+
+// The Assets shelf: the import, the Drive sync, and the cards.
+export component AssetShelf inherits VerticalLayout {
+    spacing: 8px;
+
+    HorizontalLayout {
+        spacing: 6px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: Generate.assets.length > 0
+                ? I18n.t1("generate.assetsCount", Generate.assets.length)
+                : I18n.t("generate.assets");
+            color: Theme.fg;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Button {
+            glyph: Glyph.import;
+            label: Generate.importing ? I18n.t("mediaPane.importing") : I18n.t("mediaPane.import");
+            enabled: !Generate.importing;
+            clicked => { Generate.import(); }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 6px;
+
+        Button {
+            glyph: Glyph.reset;
+            label: Generate.sync-state == 2 ? I18n.t("generate.syncing")
+                : I18n.t("generate.syncWithDrive");
+            enabled: Generate.sync-state != 2;
+            clicked => { Generate.sync(); }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: Generate.sync-state == 0 ? I18n.t("generate.driveNotConnected")
+                : Generate.sync-status;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-xs;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+    if Generate.sync-state == 2: BusyBar { value: Generate.sync-progress; }
+
+    if Generate.assets.length == 0: Note { text: I18n.t("generate.noAssetsYet"); }
+    if Generate.assets.length > 0: Note { text: I18n.t("generate.assetsHint"); }
+
+    AssetGrid { items: Generate.assets; }
+}
+
+// The whole page: the form over the shelf, or the shelf alone.
+export component GeneratePage inherits VerticalLayout {
+    /// The form is shown; off, the shelf has the page.
+    in property <bool> form: true;
+
+    padding: 8px;
+    spacing: 12px;
+
+    if root.form: GenerateForm { }
+    if root.form: Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+    AssetShelf { }
+}

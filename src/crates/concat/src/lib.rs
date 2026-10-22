@@ -96,6 +96,7 @@ use host::{Host, Shell};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
+use panes::generate::{GenerateMsg, Secret};
 use panes::media_bin::MediaMsg;
 use panes::monitor::MonitorMsg;
 use panes::project::ProjectMsg;
@@ -233,6 +234,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     let to_library = studio.sounds.shown
                         && !paths.is_empty()
                         && paths.iter().all(|path| concat_host::sounds::is_sound(path));
+                    // Pictures and videos dropped while the AI page is up
+                    // go onto its Assets shelf, the same way.
+                    let to_assets = studio.generate.shown
+                        && !paths.is_empty()
+                        && paths.iter().all(|path| concat_host::assets::is_asset(path));
                     if studio.on_start {
                         // On the launch screen there is no project to
                         // import into: a dropped project opens, and media
@@ -240,6 +246,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                         studio.handle(Msg::Start(StartMsg::Dropped(paths)));
                     } else if to_library {
                         studio.handle(Msg::Sounds(SoundsMsg::Import(paths)));
+                    } else if to_assets {
+                        studio.handle(Msg::Generate(GenerateMsg::Import(paths)));
                     } else {
                         studio.handle(Msg::Media(MediaMsg::Import(paths)));
                     }
@@ -286,6 +294,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             });
             // What `run` returning would have done next, had it returned.
             if terminating.get() {
+                stop_generation();
                 stop_exports();
             }
         },
@@ -445,6 +454,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             .set_voices_builtin(ModelRc::from(models.voices_builtin.clone()));
         app.global::<Sounds>()
             .set_styles(ModelRc::from(models.voice_styles.clone()));
+        let page = app.global::<Generate>();
+        page.set_providers(ModelRc::from(models.generate_providers.clone()));
+        page.set_models(ModelRc::from(models.generate_models.clone()));
+        page.set_model_ids(ModelRc::from(models.generate_model_ids.clone()));
+        page.set_jobs(ModelRc::from(models.generate_jobs.clone()));
+        page.set_assets(ModelRc::from(models.assets.clone()));
         app.set_voiceover_devices(ModelRc::from(models.voiceover_devices.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
@@ -1460,6 +1475,122 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }));
         sounds.on_voice_remove(on_window!(|state, id: SharedString| {
             state.forget_voice(id.as_str());
+        }));
+    }
+    // ── the library's AI page, and Settings › AI & cloud ──
+    {
+        let page = app.global::<Generate>();
+        page.on_generate(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::Start));
+        }));
+        page.on_open_settings(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::OpenSettings));
+        }));
+        page.on_sync(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::Sync));
+        }));
+        page.on_codex_check(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::CodexCheck));
+        }));
+        page.on_bridge_token_regenerated(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::BridgeTokenRegenerated));
+        }));
+        page.on_drive_connect(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::DriveConnect));
+        }));
+        page.on_drive_cancel(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::DriveCancel));
+        }));
+        page.on_drive_disconnect(on_window!(|state| {
+            state.handle(Msg::Generate(GenerateMsg::DriveDisconnect));
+        }));
+        page.on_shown(on_window!(|state, on: bool| {
+            state.handle(Msg::Generate(GenerateMsg::Shown(on)));
+        }));
+        page.on_provider_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Generate(GenerateMsg::ProviderChanged(index)));
+        }));
+        page.on_kind_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Generate(GenerateMsg::KindChanged(index)));
+        }));
+        page.on_model_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::ModelEdited(text.to_string())));
+        }));
+        page.on_model_picked(on_window!(|state, index: i32| {
+            state.handle(Msg::Generate(GenerateMsg::ModelPicked(index)));
+        }));
+        page.on_aspect_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Generate(GenerateMsg::AspectChanged(index)));
+        }));
+        page.on_seconds_changed(on_window!(|state, seconds: i32| {
+            state.handle(Msg::Generate(GenerateMsg::SecondsChanged(seconds)));
+        }));
+        page.on_prompt_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::PromptEdited(text.to_string())));
+        }));
+        page.on_cancel(on_window!(|state, id: i32| {
+            state.handle(Msg::Generate(GenerateMsg::Cancel(id.max(0) as u64)));
+        }));
+        // The picker answers on a turn of its own, the way the bin's does;
+        // see `host::pick_files_then`.
+        page.on_import(|| {
+            host::pick_files_then(
+                i18n::t("generate.importAssets"),
+                Some((
+                    i18n::t("generate.picturesAndVideos"),
+                    &panes::generate::PICK_EXTENSIONS,
+                )),
+                |studio, _, _, paths| studio.handle(Msg::Generate(GenerateMsg::Import(paths))),
+            );
+        });
+        page.on_preview(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::Preview(id.to_string())));
+        }));
+        page.on_add(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::Add(id.to_string())));
+        }));
+        page.on_remove(on_window!(|state, id: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::Remove(id.to_string())));
+        }));
+        page.on_rename(on_window!(|state, id: SharedString, name: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::Rename(
+                id.to_string(),
+                name.to_string(),
+            )));
+        }));
+        page.on_openrouter_key_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::OpenRouterKeyEdited(Secret(
+                text.to_string(),
+            ))));
+        }));
+        page.on_image_model_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::ImageModelEdited(
+                text.to_string(),
+            )));
+        }));
+        page.on_video_model_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::VideoModelEdited(
+                text.to_string(),
+            )));
+        }));
+        page.on_bridge_enabled_changed(on_window!(|state, on: bool| {
+            state.handle(Msg::Generate(GenerateMsg::BridgeEnabledChanged(on)));
+        }));
+        page.on_bridge_port_edited(on_window!(|state, port: i32| {
+            state.handle(Msg::Generate(GenerateMsg::BridgePortEdited(port)));
+        }));
+        page.on_drive_client_id_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::DriveClientIdEdited(
+                text.to_string(),
+            )));
+        }));
+        page.on_drive_client_secret_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::DriveClientSecretEdited(Secret(
+                text.to_string(),
+            ))));
+        }));
+        page.on_drive_auto_sync_changed(on_window!(|state, on: bool| {
+            state.handle(Msg::Generate(GenerateMsg::DriveAutoSyncChanged(on)));
         }));
     }
     // Text to speech keeps the sample it reads in as a voice of the
@@ -2510,6 +2641,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             log::warn!("close: the activity ended and the project could not be saved: {error}");
         }
     });
+    stop_generation();
     stop_exports();
     drop(startup_mark);
     leave(0);
@@ -2536,6 +2668,18 @@ fn add_pane(state: &mut Studio, kind: PaneKind) {
         return;
     };
     state.dock.split_leaf(&path, kind, side);
+}
+
+/// Stops what the AI page has running before the process goes: every
+/// generation, Drive sign-in and sync is cancelled - a Codex run is a
+/// process of its own, killed when its job sees the flag - and the browser
+/// bridge lets go of its port.
+fn stop_generation() {
+    Shell::with(|shell, _| {
+        if let Ok(mut studio) = shell.studio.try_borrow_mut() {
+            studio.stop_generation();
+        }
+    });
 }
 
 /// How long a quit waits for an export it cancelled to stop.
