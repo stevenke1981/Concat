@@ -19,14 +19,18 @@
 //! Nothing here knows about a window. Long work reports through callbacks
 //! and cancels through flags, and the caller decides which thread it runs on.
 
+pub mod assets;
+pub mod bridge;
 pub mod brush;
 pub mod cards;
 pub mod consolidate;
 pub mod crash;
 pub mod cutout;
 pub mod dirs;
+pub mod drive;
 pub mod enhance;
 pub mod export;
+pub mod generate;
 pub mod jobs;
 pub mod lock;
 pub mod logs;

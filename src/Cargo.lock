@@ -1244,6 +1244,7 @@ dependencies = [
 name = "concat-host"
 version = "0.2.8"
 dependencies = [
+ "base64 0.22.1",
  "concat-core",
  "concat-effects",
  "concat-export",
@@ -1253,6 +1254,7 @@ dependencies = [
  "concat-text",
  "concat-vision",
  "cpal",
+ "getrandom 0.3.4",
  "libc",
  "log",
  "memmap2",
