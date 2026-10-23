@@ -718,7 +718,7 @@ mod tests {
     }
 
     #[cfg(windows)]
-    const WAIT_LINE: &str = "ping -n 30 127.0.0.1 >NUL";
+    const WAIT_LINE: &str = r#""%SystemRoot%\System32\ping.exe" -n 30 127.0.0.1 >NUL"#;
     #[cfg(not(windows))]
     const WAIT_LINE: &str = "sleep 30";
 
@@ -1059,7 +1059,13 @@ mod tests {
     #[test]
     fn cancel_stops_the_codex_run_promptly() {
         let root = temp();
-        let program = fake_codex(root.path(), WAIT_LINE);
+        // A batch fixture must keep waiting even when its PATH has no system
+        // commands; otherwise an early shell error masquerades as cancellation.
+        #[cfg(windows)]
+        let wait = format!("set \"PATH=\"\r\n{WAIT_LINE}");
+        #[cfg(not(windows))]
+        let wait = WAIT_LINE.to_owned();
+        let program = fake_codex(root.path(), &wait);
         let config = Config {
             program: Some(program),
             codex_home: Some(root.path().join("home")),
