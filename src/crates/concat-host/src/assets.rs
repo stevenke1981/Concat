@@ -179,7 +179,7 @@ impl AssetLibrary {
     /// that is neither is refused before anything is copied. When the library
     /// already holds the same bytes, that asset is returned unchanged and
     /// nothing is stored twice. With `keep_source` false the file is moved
-    /// rather than copied.
+    /// rather than copied, after the copy and its index have been saved.
     pub fn take(
         &mut self,
         source: &Path,
@@ -349,9 +349,10 @@ impl AssetLibrary {
     }
 
     /// Makes the copy of `asset` from `source`, puts it at the front of the
-    /// list and writes the index. If the index cannot be written, the list is
-    /// left as it was; a copy is removed, while a moved file stays where it
-    /// went, so nothing the person had is lost.
+    /// list and writes the index before removing a moved source. If the
+    /// index cannot be written, the list and the source stay as they were
+    /// and the new copy is removed. If removing the source fails after saving,
+    /// the indexed copy stays available beside the source.
     fn index_new(
         &mut self,
         source: &Path,
@@ -360,29 +361,46 @@ impl AssetLibrary {
     ) -> Result<Asset, String> {
         self.ensure_dir()?;
         let target = self.path_of(&asset);
-        place(source, &target, keep_source)?;
+        let already_placed = is_same_file(source, &target);
+        if !already_placed {
+            copy(source, &target)?;
+        }
         self.assets.insert(0, asset.clone());
         if let Err(error) = self.save() {
             self.assets.remove(0);
-            if keep_source {
+            if !already_placed {
                 let _ = std::fs::remove_file(&target);
             }
             return Err(error);
+        }
+        if !keep_source && !already_placed {
+            discard(source)
+                .map_err(|error| format!("{error}; the asset was saved at {}", target.display()))?;
         }
         Ok(asset)
     }
 
     /// Deletes a duplicate's source when the caller asked for a move. The
     /// source is left alone when it is the held copy itself, so importing a
-    /// file out of the library cannot delete it.
+    /// file out of the library cannot delete it. The held copy must still be
+    /// a file of its recorded size before the source may be discarded.
     fn discard_duplicate(
         &self,
         source: &Path,
         keep_source: bool,
         held: &Asset,
     ) -> Result<(), String> {
-        if keep_source || is_same_file(source, &self.path_of(held)) {
+        let target = self.path_of(held);
+        if keep_source || is_same_file(source, &target) {
             return Ok(());
+        }
+        let metadata = std::fs::metadata(&target)
+            .map_err(|error| format!("could not read {}: {error}", target.display()))?;
+        if !metadata.is_file() || metadata.len() != held.bytes {
+            return Err(format!(
+                "the asset copy at {} has changed",
+                target.display()
+            ));
         }
         discard(source)
     }
@@ -472,24 +490,6 @@ fn read_head(source: &Path) -> Result<Vec<u8>, String> {
         .read_to_end(&mut head)
         .map_err(|error| format!("could not read {}: {error}", source.display()))?;
     Ok(head)
-}
-
-/// Puts the file at `source` at `target`: a copy when the source stays, else
-/// a move. A move that a rename cannot make, across volumes, is a copy and a
-/// delete of the source.
-fn place(source: &Path, target: &Path, keep_source: bool) -> Result<(), String> {
-    if keep_source {
-        return copy(source, target);
-    }
-    if std::fs::rename(source, target).is_ok() {
-        return Ok(());
-    }
-    copy(source, target)?;
-    if let Err(error) = std::fs::remove_file(source) {
-        let _ = std::fs::remove_file(target);
-        return Err(format!("could not move {}: {error}", source.display()));
-    }
-    Ok(())
 }
 
 /// Copies `source` to `target`, removing a part-written `target` on failure.
@@ -719,6 +719,96 @@ mod tests {
 
         assert_eq!(same, kept);
         assert!(copy.is_file(), "the held copy is not its own duplicate");
+    }
+
+    #[test]
+    fn a_missing_duplicate_copy_does_not_discard_the_source() {
+        let root = scratch();
+        let first = write(&root.path().join("inbox/one.png"), PNG);
+        let second = write(&root.path().join("inbox/two.png"), PNG);
+        let mut library = library_in(&root);
+        let held = library.take(&first, origin("fox"), true).expect("taken");
+        std::fs::remove_file(library.path_of(&held)).expect("the held copy is gone");
+
+        let result = library.take(&second, Origin::default(), false);
+
+        assert_eq!(
+            std::fs::read(&second).expect("the only remaining copy stays at its source"),
+            PNG
+        );
+        assert!(result.is_err(), "a missing copy cannot replace the source");
+    }
+
+    #[test]
+    fn a_truncated_duplicate_copy_does_not_discard_the_source() {
+        let root = scratch();
+        let first = write(&root.path().join("inbox/one.png"), PNG);
+        let second = write(&root.path().join("inbox/two.png"), PNG);
+        let mut library = library_in(&root);
+        let held = library.take(&first, origin("fox"), true).expect("taken");
+        std::fs::write(library.path_of(&held), b"truncated").expect("a truncated copy");
+
+        let result = library.take(&second, Origin::default(), false);
+
+        assert_eq!(
+            std::fs::read(&second).expect("the complete copy stays at its source"),
+            PNG
+        );
+        assert!(
+            result.is_err(),
+            "a truncated copy cannot replace the source"
+        );
+    }
+
+    #[test]
+    fn a_missing_copy_with_the_same_id_does_not_discard_the_source() {
+        let root = scratch();
+        let first = write(&root.path().join("inbox/one.png"), PNG);
+        let second = write(&root.path().join("inbox/two.png"), PNG);
+        let mut library = library_in(&root);
+        let template = remote("a1b2c3", MediaKind::Image);
+        let held = library
+            .take_as(&first, template.clone(), true)
+            .expect("taken");
+        std::fs::remove_file(library.path_of(&held)).expect("the held copy is gone");
+
+        let result = library.take_as(&second, template, false);
+
+        assert_eq!(
+            std::fs::read(&second).expect("the only remaining copy stays at its source"),
+            PNG
+        );
+        assert!(result.is_err(), "a missing copy cannot replace the source");
+    }
+
+    #[test]
+    fn a_failed_index_write_keeps_a_moved_source_and_the_previous_index() {
+        let root = scratch();
+        let first = write(&root.path().join("inbox/one.png"), PNG);
+        let second = write(&root.path().join("inbox/two.mp4"), MP4);
+        let mut library = library_in(&root);
+        let held = library.take(&first, origin("fox"), true).expect("taken");
+        let index = library.dir.join(INDEX);
+        let previous = std::fs::read(&index).expect("the previous index");
+        std::fs::create_dir(library.dir.join(format!("{INDEX}.partial")))
+            .expect("block writing the temporary index");
+
+        let result = library.take(&second, Origin::default(), false);
+
+        assert!(result.is_err(), "the blocked index cannot be saved");
+        assert_eq!(
+            std::fs::read(&second).expect("a failed move keeps the source in place"),
+            MP4
+        );
+        assert_eq!(library.assets, vec![held.clone()]);
+        assert_eq!(std::fs::read(index).expect("the last index"), previous);
+        assert_eq!(library_in(&root).assets, vec![held]);
+        let copies = std::fs::read_dir(&library.dir)
+            .expect("the library folder")
+            .map(|entry| entry.expect("a library entry").path())
+            .filter(|path| is_asset(path))
+            .count();
+        assert_eq!(copies, 1, "a failed import leaves no unindexed copy");
     }
 
     #[test]
