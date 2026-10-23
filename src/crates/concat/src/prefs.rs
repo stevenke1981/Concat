@@ -87,10 +87,15 @@ pub struct Preferences {
     /// would otherwise leave Concat on the CPU for good.
     pub software_after_crash: Option<String>,
     /// The magnetic timeline: a delete and a trim close the gap they would
-    /// leave, on the lane they happen on. Off by default, because a gap is
-    /// sometimes the point; ⇧⌫ ripples either way.
+    /// leave, on the lane they happen on. Off by default on a desk, because
+    /// a gap is sometimes the point; ⇧⌫ ripples either way. Read it through
+    /// [`Preferences::magnetic`], which knows the phone's default.
     /// https://github.com/jub0t/Concat/issues/106
     pub magnetic: bool,
+    /// Whether the person has set the magnetic timeline, either way. Every
+    /// phone has saved `magnetic: false` without anyone choosing it, so
+    /// this is what tells a phone's chosen Off from the default it got.
+    pub magnetic_chosen: bool,
     /// Trim follow: while a clip's edge is dragged, the playhead rides the
     /// edge, so the monitor shows the exact frame the cut lands on. Off by
     /// default; the tray's button beside the hand turns it on.
@@ -378,6 +383,23 @@ impl Preferences {
             .filter(|location| std::path::Path::new(location).is_dir())
     }
 
+    /// Whether the magnet shows as on. On a phone, until the person says
+    /// otherwise: the phone editors close the gap a delete leaves on the
+    /// main picture's lane, a Split and Delete there left a black hole in
+    /// the picture and the export (#497), and the phone shell has no magnet
+    /// in sight to turn on. What that default closes is
+    /// `Studio::closes_gap`'s to say; the field alone is the desk's magnet,
+    /// which closes every lane.
+    pub fn magnetic(&self) -> bool {
+        self.magnetic || (crate::platform::phone() && !self.magnetic_chosen)
+    }
+
+    /// Sets the magnetic timeline by the person's choice.
+    pub fn set_magnetic(&mut self, on: bool) {
+        self.magnetic = on;
+        self.magnetic_chosen = true;
+    }
+
     /// Whether this launch draws in software, by choice or after a crash.
     pub fn draws_in_software(&self) -> bool {
         self.software_gpu || self.software_after_crash.is_some()
@@ -411,25 +433,148 @@ impl Preferences {
 
     /// Reads the file, or the defaults when there is none.
     pub fn load(dirs: &AppDirs) -> Self {
-        std::fs::read(dirs.config.join(FILE))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        let path = dirs.config.join(FILE);
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Self::default();
+        };
+        if let Ok(preferences) = serde_json::from_slice(&bytes) {
+            return preferences;
+        }
+        // One value of the wrong shape - a field an older or newer build
+        // wrote differently, a hand edit - failed the whole file, and every
+        // setting went back to its default at once. The ones that still
+        // read are kept, and the file as it was is set aside rather than
+        // overwritten by the next save.
+        let _ = std::fs::copy(&path, path.with_extension("json.unreadable"));
+        let preferences = salvage(&bytes);
+        log::warn!(
+            "settings: {} did not read whole; kept what did",
+            path.display()
+        );
+        preferences
     }
 
     /// Writes the file. Best effort: a preference that did not stick is
-    /// not worth interrupting anyone over.
+    /// not worth interrupting anyone over. Written beside the file and
+    /// moved over it, so a crash or a second window saving at the same
+    /// moment leaves one whole file, never half of one; and readable by
+    /// this account alone where the platform has the notion, since it
+    /// holds the remote API's token.
     pub fn save(&self, dirs: &AppDirs) {
         let _ = std::fs::create_dir_all(&dirs.config);
-        if let Ok(encoded) = serde_json::to_vec_pretty(self) {
-            let _ = std::fs::write(dirs.config.join(FILE), encoded);
+        let Ok(encoded) = serde_json::to_vec_pretty(self) else {
+            return;
+        };
+        let path = dirs.config.join(FILE);
+        let staging = dirs
+            .config
+            .join(format!("{FILE}.{}.part", std::process::id()));
+        if write_private(&staging, &encoded).is_err() || std::fs::rename(&staging, &path).is_err() {
+            let _ = std::fs::remove_file(&staging);
         }
     }
+}
+
+/// The fields of a settings file that read, on the defaults: each top-level
+/// value is laid over them in turn and kept only if the whole still reads.
+fn salvage(bytes: &[u8]) -> Preferences {
+    let Ok(serde_json::Value::Object(found)) = serde_json::from_slice(bytes) else {
+        return Preferences::default();
+    };
+    let Ok(serde_json::Value::Object(mut kept)) = serde_json::to_value(Preferences::default())
+    else {
+        return Preferences::default();
+    };
+    for (key, value) in found {
+        let before = kept.insert(key.clone(), value);
+        if serde_json::from_value::<Preferences>(serde_json::Value::Object(kept.clone())).is_err() {
+            match before {
+                Some(before) => kept.insert(key, before),
+                None => kept.remove(&key),
+            };
+        }
+    }
+    serde_json::from_value(serde_json::Value::Object(kept)).unwrap_or_default()
+}
+
+/// Writes a new file only this account can read, on Unix; elsewhere as
+/// the platform makes files, which on Windows is the profile's own folder.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A choice made is kept, whatever the platform's default: a phone
+    /// that turned the magnet off stays off, and a desk that turned it on
+    /// stays on.
+    #[test]
+    fn a_chosen_magnetic_timeline_outranks_the_default() {
+        let mut prefs = Preferences::default();
+        assert!(!prefs.magnetic_chosen);
+        prefs.set_magnetic(false);
+        assert!(!prefs.magnetic());
+        prefs.set_magnetic(true);
+        assert!(prefs.magnetic());
+        // A file saved before the choice was recorded reads as unchosen.
+        let old: Preferences = serde_json::from_str(r#"{"magnetic":false}"#).expect("old prefs");
+        assert!(!old.magnetic_chosen);
+        assert_eq!(old.magnetic(), crate::platform::phone());
+    }
+
+    /// One value of the wrong shape costs that value, not every setting,
+    /// and the file is set aside before anything writes over it.
+    #[test]
+    fn a_settings_file_that_does_not_read_whole_keeps_what_does() {
+        let root =
+            std::env::temp_dir().join(format!("concat-settings-salvage-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            data: root.join("data"),
+        };
+        std::fs::create_dir_all(&dirs.config).expect("a config folder");
+        std::fs::write(
+            dirs.config.join(FILE),
+            r#"{"magnetic": true, "dark": "very", "lastProjectLocation": "/films"}"#,
+        )
+        .expect("a settings file");
+        let prefs = Preferences::load(&dirs);
+        assert!(prefs.magnetic);
+        assert_eq!(prefs.last_project_location.as_deref(), Some("/films"));
+        assert_eq!(
+            prefs.dark, None,
+            "the value that did not read is the default"
+        );
+        assert!(dirs.config.join("settings.json.unreadable").is_file());
+
+        prefs.save(&dirs);
+        assert!(Preferences::load(&dirs).magnetic);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dirs.config.join(FILE))
+                .expect("saved")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o077, 0, "nobody else reads it");
+        }
+        let leftovers = std::fs::read_dir(&dirs.config)
+            .expect("listed")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
+            .count();
+        assert_eq!(leftovers, 0);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn the_last_project_location_survives_loading_and_saving() {

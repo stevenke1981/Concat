@@ -2138,19 +2138,24 @@ pub enum Confirm {
     QuitWithoutSaving { error: String },
 }
 
-/// One clip on the clipboard: the clip as it was when copied, and the row
-/// of the lane it sat on. A lane's id belongs to its timeline, so a paste
-/// into another timeline goes by the row instead and lands the clip on
-/// the same row there (#290).
+/// One clip on the clipboard: the clip as it was when copied, the row of
+/// the lane it sat on, and the file it plays. A lane's id belongs to its
+/// timeline, so a paste into another timeline goes by the row instead and
+/// lands the clip on the same row there (#290). A media id belongs to its
+/// project, so a paste into another project goes by the file: the same
+/// id there is another file or none, and the paste laid the wrong footage
+/// down or nothing at all.
 #[derive(Clone, Debug)]
 pub struct Held {
     pub row: usize,
     pub clip: Clip,
+    pub media: Option<model::MediaItem>,
 }
 
 /// The edits that make `placed` - the whole of `source`'s file, just laid
 /// on a free stretch of the lane - into a copy of `source` at `start` on
-/// `track_id`: its frames, speed, placement, keys and mix.
+/// `track_id`: its frames, speed and placement, and then everything else
+/// it has (see [`match_command`]).
 ///
 /// The footage is trimmed at normal speed to what the source covers, then
 /// retimed - the speed command keeps the footage covered and recomputes
@@ -2200,44 +2205,24 @@ fn copy_commands(source: &Clip, placed: &Clip, track_id: &str, start: f64) -> Ve
             track_id: track_id.to_owned(),
         }],
     });
-    commands.push(Command::SetClipTransform {
-        clip_id: created.clone(),
-        scale: Some(source.scale),
-        offset_x: Some(source.offset_x),
-        offset_y: Some(source.offset_y),
-        rotation: Some(source.rotation),
-        stretch_x: Some(source.stretch_x),
-        stretch_y: Some(source.stretch_y),
-    });
-    for key in &source.keys {
-        commands.push(Command::SetClipKey {
-            clip_id: created.clone(),
-            property: key.property,
-            at: key.at,
-            value: key.value,
-            ease: key.ease,
-        });
-    }
-    commands.push(Command::UpdateClip {
-        clip_id: created.clone(),
-        patch: ClipPatch {
-            name: Some(format!("{} copy", source.name)),
-            volume: Some(source.volume),
-            fade_in: Some(source.fade_in),
-            fade_out: Some(source.fade_out),
-            opacity: Some(source.opacity),
-            preserve_pitch: Some(source.preserve_pitch),
-            muted: source.muted,
-            flip_h: Some(source.flip_h),
-            flip_v: Some(source.flip_v),
-            blend: Some(source.blend.clone()),
-            crop: Some(source.crop),
-            filters: Some(source.filters.clone()),
-            video_effects: Some(source.video_effects.clone()),
-            ..ClipPatch::default()
-        },
-    });
+    commands.push(match_command(source, created));
     commands
+}
+
+/// Makes `created` like `source` in everything but its place, named as a
+/// copy. The whole clip goes, not a list of its fields: the list this
+/// replaced was written before masks, cutouts, stabilizing, backgrounds
+/// and enhancing, and a copy quietly lost every one of them.
+fn match_command(source: &Clip, created: &str) -> Command {
+    let mut like = source.clone();
+    // A title's name follows its words; anything else says it is a copy.
+    if like.text.is_none() {
+        like.name = format!("{} copy", source.name);
+    }
+    Command::MatchClip {
+        clip_id: created.to_owned(),
+        like: Box::new(like),
+    }
 }
 
 /// Where each held clip lands: `(row, start)` per clip in the order held,
@@ -7759,7 +7744,7 @@ impl Studio {
             &ids,
             at,
             side,
-            self.prefs.magnetic,
+            self.closes_gap(&ids),
         ) else {
             self.notify(&t("studio.parkPlayheadInsideClip"), true);
             return;
@@ -7949,8 +7934,29 @@ impl Studio {
             self.remove_transition();
             return;
         }
-        let magnetic = self.prefs.magnetic;
+        let magnetic = self.closes_gap(&self.selection);
         self.remove_selected(magnetic);
+    }
+
+    /// Whether removing these clips closes the gap they leave: always with
+    /// the magnetic timeline on, and on a phone, until the person sets it,
+    /// when every one of them is on the main picture's lane - CapCut's main
+    /// track, where a Split and Delete is done (#497). Titles, captions and
+    /// overlays keep their time there: a caption deleted must not pull the
+    /// ones after it off the words they were timed to.
+    fn closes_gap(&self, ids: &[String]) -> bool {
+        if self.prefs.magnetic {
+            return true;
+        }
+        if !self.prefs.magnetic() {
+            return false;
+        }
+        let main = self.timeline().background_lane();
+        !ids.is_empty()
+            && ids.iter().all(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| main == Some(clip.track_id.as_str()))
+            })
     }
 
     /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
@@ -8130,7 +8136,13 @@ impl Studio {
             .filter_map(|id| {
                 let clip = self.clip(id)?.clone();
                 let row = tracks.iter().position(|track| track.id == clip.track_id)?;
-                Some(Held { row, clip })
+                let media = self
+                    .project()
+                    .media
+                    .iter()
+                    .find(|item| item.id == clip.media_id)
+                    .cloned();
+                Some(Held { row, clip, media })
             })
             .collect();
         if held.is_empty() {
@@ -8186,7 +8198,10 @@ impl Studio {
             let Some((row, start)) = place else {
                 continue;
             };
-            if let Some(id) = self.place_copy(&held.clip, &tracks[row], start, Some("paste")) {
+            let Some(source) = self.held_here(held) else {
+                continue;
+            };
+            if let Some(id) = self.place_copy(&source, &tracks[row], start, Some("paste")) {
                 created.push(id);
             }
         }
@@ -8197,6 +8212,48 @@ impl Studio {
         if !created.is_empty() {
             self.selection = created;
         }
+    }
+
+    /// The held clip as this project knows it: playing this project's
+    /// media item for its file - the same one when it was copied here, the
+    /// one with the same path when it was copied elsewhere, or the file
+    /// added to the bin when this project has not got it.
+    fn held_here(&mut self, held: &Held) -> Option<Clip> {
+        let mut clip = held.clip.clone();
+        let Some(item) = &held.media else {
+            return Some(clip);
+        };
+        let here = self
+            .project()
+            .media
+            .iter()
+            .find(|mine| mine.path == item.path)
+            .map(|mine| mine.id.clone());
+        clip.media_id = match here {
+            Some(id) => id,
+            None => self.apply_in(
+                Some("paste"),
+                Command::AddMedia {
+                    item: concat_project::commands::NewMedia {
+                        path: item.path.clone(),
+                        name: item.name.clone(),
+                        duration: item.duration,
+                        kind: item.kind,
+                        width: item.width,
+                        height: item.height,
+                        frame_rate: item.frame_rate,
+                        frame_rate_fraction: item.frame_rate_fraction.clone(),
+                        video_codec: item.video_codec.clone(),
+                        audio_codec: item.audio_codec.clone(),
+                        has_audio: item.has_audio,
+                        audio_tracks: item.audio_tracks.clone(),
+                        origin: item.origin,
+                        color_space: item.color_space,
+                    },
+                },
+            )?,
+        };
+        Some(clip)
     }
 
     /// Lays a copy of `source` on `track_id` starting at `start` - its
@@ -8212,31 +8269,29 @@ impl Studio {
         start: f64,
         gesture: Option<&str>,
     ) -> Option<String> {
-        if source.kind == model::ClipKind::Text {
-            return self.apply_in(
-                gesture,
-                Command::AddTextClip {
-                    above: false,
-                    track_id: Some(track_id.to_owned()),
-                    start,
-                    style: source.text.clone(),
-                    duration: Some(source.duration),
-                    offset_y: Some(source.offset_y),
-                },
-            );
-        }
-        if source.kind == model::ClipKind::Shape {
-            return self.apply_in(
-                gesture,
-                Command::AddShapeClip {
-                    above: false,
-                    track_id: Some(track_id.to_owned()),
-                    start,
-                    style: source.shape.clone(),
-                    duration: Some(source.duration),
-                    name: source.name.clone(),
-                },
-            );
+        let drawn = match source.kind {
+            model::ClipKind::Text => Some(Command::AddTextClip {
+                above: false,
+                track_id: Some(track_id.to_owned()),
+                start,
+                style: source.text.clone(),
+                duration: Some(source.duration),
+                offset_y: Some(source.offset_y),
+            }),
+            model::ClipKind::Shape => Some(Command::AddShapeClip {
+                above: false,
+                track_id: Some(track_id.to_owned()),
+                start,
+                style: source.shape.clone(),
+                duration: Some(source.duration),
+                name: source.name.clone(),
+            }),
+            _ => None,
+        };
+        if let Some(add) = drawn {
+            let created = self.apply_in(gesture, add)?;
+            self.apply_in(gesture, match_command(source, &created));
+            return Some(created);
         }
         let lane_end = self
             .timeline()
@@ -9048,6 +9103,18 @@ impl Studio {
         );
     }
 
+    /// Whether a sheet covers the editor - Export, Settings, the project
+    /// sheet, a relink or a question - so the editor's keys are not its
+    /// own. The tool cards are not sheets: the timeline is worked beside
+    /// them.
+    pub fn sheet_open(&self) -> bool {
+        self.export.open
+            || self.settings.open
+            || self.project_sheet.open
+            || self.relink.open
+            || self.confirm.is_some()
+    }
+
     // ── notices ──
 
     /// Raises the bottom-right notice. Every caller is some other handler
@@ -9391,7 +9458,7 @@ impl Studio {
         editor.set_frame_rate(self.frame_rate());
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
-        editor.set_magnetic(self.prefs.magnetic);
+        editor.set_magnetic(self.prefs.magnetic());
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_preview_axis(self.prefs.preview_axis);
@@ -11959,7 +12026,7 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: self.prefs.magnetic,
+                    checked: self.prefs.magnetic(),
                 },
             ],
             2 => vec![
@@ -12370,8 +12437,15 @@ impl Studio {
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
             "delete" | "ripple-delete" => {
-                let ripple = action == "ripple-delete" || self.prefs.magnetic;
-                if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
+                let whole =
+                    self.selection.len() > 1 && self.selection.iter().any(|held| held == id);
+                let ripple = action == "ripple-delete"
+                    || if whole {
+                        self.closes_gap(&self.selection)
+                    } else {
+                        self.closes_gap(&[id.to_owned()])
+                    };
+                if whole {
                     self.remove_selected(ripple);
                 } else {
                     self.apply(Command::RemoveClips {
@@ -12540,6 +12614,7 @@ mod tests {
         let held = |row: usize, start: f64| super::Held {
             row,
             clip: Clip::blank("c", "t", ClipKind::Video, "c", start, 1.0),
+            media: None,
         };
         let group = [held(1, 4.0), held(2, 5.5), held(0, 9.0)];
         let none = |_: usize| false;
