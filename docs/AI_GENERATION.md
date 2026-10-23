@@ -29,6 +29,11 @@ media is handled.
 The shelf also has **Import** (to bring in your own files), **Rename**,
 **Remove**, and **Sync with Google Drive** (section 5).
 
+Use **Search assets** to find a name, prompt, model or provider. Search is
+case-insensitive, and each word can match a different field: `ocean Flow`
+finds ocean assets made with Google Flow. Clearing the search restores the
+whole shelf in its original order; searching does not change any saved asset.
+
 ## 2. Providers
 
 | Provider | Makes | Who pays | What you need |

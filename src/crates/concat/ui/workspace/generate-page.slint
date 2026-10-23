@@ -107,6 +107,10 @@ export global Generate {
     // ── the Assets shelf ──
     /// Newest first.
     in property <[AssetCardData]> assets;
+    /// Unfiltered count distinguishes an empty library from no search matches.
+    in property <int> asset-count;
+    in property <string> asset-query;
+    callback asset-query-edited(text: string);
     /// Files are being copied in.
     in property <bool> importing;
     /// 0 Google Drive not connected (the button opens Settings), 1
@@ -725,7 +729,16 @@ export component AssetShelf inherits VerticalLayout {
     }
     if Generate.sync-state == 2: BusyBar { value: Generate.sync-progress; }
 
-    if Generate.assets.length == 0: Note { text: I18n.t("generate.noAssetsYet"); }
+    if Generate.asset-count > 0 || Generate.asset-query != "": Field {
+        value: Generate.asset-query;
+        placeholder: I18n.t("generate.searchAssets");
+        edited(text) => { Generate.asset-query-edited(text); }
+    }
+
+    if Generate.asset-count == 0: Note { text: I18n.t("generate.noAssetsYet"); }
+    if Generate.asset-count > 0 && Generate.assets.length == 0: Note {
+        text: I18n.t("generate.noAssetsMatch");
+    }
     if Generate.assets.length > 0: Note { text: I18n.t("generate.assetsHint"); }
 
     AssetGrid { items: Generate.assets; }

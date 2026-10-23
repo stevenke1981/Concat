@@ -329,11 +329,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     studio.set_phone(phone);
     if safe {
         let notice = if cfg!(target_os = "android") {
-            "start.safeModePhone"
+            i18n::t("start.safeModePhone")
         } else {
-            "start.safeMode"
+            i18n::t("start.safeMode")
         };
-        studio.notify(&i18n::t(notice), false);
+        studio.notify(&notice, false);
     }
     studio.reload_packages(false);
     studio.watch_packages();
@@ -1532,6 +1532,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }));
         page.on_prompt_edited(on_window!(|state, text: SharedString| {
             state.handle(Msg::Generate(GenerateMsg::PromptEdited(text.to_string())));
+        }));
+        page.on_asset_query_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Generate(GenerateMsg::AssetQueryEdited(
+                text.to_string(),
+            )));
         }));
         page.on_cancel(on_window!(|state, id: i32| {
             state.handle(Msg::Generate(GenerateMsg::Cancel(id.max(0) as u64)));

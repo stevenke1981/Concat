@@ -148,6 +148,8 @@ pub enum GenerateMsg {
     OpenSettings,
     /// Files picked, or dropped while the page was up.
     Import(Vec<PathBuf>),
+    /// Filters the shelf by its names, prompts, models and makers.
+    AssetQueryEdited(String),
     /// The import's thread is done: each file's asset id, or why not.
     Imported(Vec<Result<String, String>>),
     /// A card clicked: on the monitor.
@@ -210,6 +212,8 @@ pub struct GeneratePane {
     library_dir: PathBuf,
     /// What the shelf shows: the library as last read, newest first.
     shelf: Vec<Asset>,
+    /// View state only: searching never changes the library or its ids.
+    asset_query: String,
     /// The library was busy when the shelf was last read.
     shelf_stale: bool,
     /// Each card's picture and a video's length, once read; by asset id.
@@ -380,6 +384,7 @@ impl GeneratePane {
             GenerateMsg::Finished(id, result) => self.finished(id, result, studio),
             GenerateMsg::OpenSettings => open_settings(studio),
             GenerateMsg::Import(paths) => self.import(paths, studio),
+            GenerateMsg::AssetQueryEdited(query) => self.asset_query = query,
             GenerateMsg::Imported(results) => {
                 self.importing = self.importing.saturating_sub(1);
                 self.refresh_shelf();
@@ -1241,6 +1246,8 @@ impl GeneratePane {
         page.set_status_failed(self.status.1);
 
         sync(&models.assets, self.cards());
+        page.set_asset_query(self.asset_query.as_str().into());
+        page.set_asset_count(self.shelf.len() as i32);
         page.set_importing(self.importing > 0);
         page.set_sync_state(if self.syncing.is_some() {
             2
@@ -1302,8 +1309,14 @@ impl GeneratePane {
 
     /// The shelf's cards.
     fn cards(&self) -> Vec<AssetCardData> {
+        let terms: Vec<String> = self
+            .asset_query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect();
         self.shelf
             .iter()
+            .filter(|asset| asset_matches(asset, &terms))
             .map(|asset| AssetCardData {
                 id: asset.id.as_str().into(),
                 name: asset.name.as_str().into(),
@@ -1314,6 +1327,24 @@ impl GeneratePane {
             })
             .collect()
     }
+}
+
+/// Every search word may match a different field. Match the displayed badge
+/// too, so a person can search for the same provider name the card shows.
+fn asset_matches(asset: &Asset, terms: &[String]) -> bool {
+    if terms.is_empty() {
+        return true;
+    }
+    let fields = [
+        asset.name.to_lowercase(),
+        asset.prompt.to_lowercase(),
+        asset.model.to_lowercase(),
+        asset.provider.to_lowercase(),
+        badge(&asset.provider).to_lowercase(),
+    ];
+    terms
+        .iter()
+        .all(|term| fields.iter().any(|field| field.contains(term)))
 }
 
 /// What the Import button's picker offers: every picture and video the
@@ -1510,6 +1541,60 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn searchable_asset(id: &str, name: &str, prompt: &str, provider: &str) -> Asset {
+        Asset {
+            id: id.into(),
+            name: name.into(),
+            file: format!("{id}.png"),
+            kind: MediaKind::Image,
+            prompt: prompt.into(),
+            provider: provider.into(),
+            model: "Gemini".into(),
+            added: 0,
+            bytes: 0,
+            sha256: String::new(),
+            drive_id: None,
+        }
+    }
+
+    #[test]
+    fn searching_the_shelf_keeps_ids_order_and_the_full_library() {
+        let mut pane = GeneratePane {
+            shelf: vec![
+                searchable_asset("new", "海邊日落", "A Quiet Ocean", "flow"),
+                searchable_asset("old", "Forest", "Morning mist", "openrouter"),
+            ],
+            asset_query: "  OCEAN 海邊 google GEMINI  ".into(),
+            ..GeneratePane::default()
+        };
+        let cards = pane.cards();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].id, "new");
+        assert_eq!(cards[0].name, "海邊日落");
+        assert_eq!(pane.shelf.len(), 2, "searching is only a view projection");
+
+        pane.asset_query = "OpenRouter".into();
+        assert_eq!(pane.cards()[0].id, "old");
+        pane.asset_query = "  \t  ".into();
+        let ids: Vec<String> = pane
+            .cards()
+            .iter()
+            .map(|card| card.id.to_string())
+            .collect();
+        assert_eq!(ids, ["new", "old"]);
+    }
+
+    #[test]
+    fn an_unmatched_shelf_search_does_not_remove_an_asset() {
+        let pane = GeneratePane {
+            shelf: vec![searchable_asset("held", "Forest", "Morning mist", "flow")],
+            asset_query: "forest night".into(),
+            ..GeneratePane::default()
+        };
+        assert!(pane.cards().is_empty(), "every search word must match");
+        assert_eq!(pane.shelf[0].id, "held");
+    }
 
     #[test]
     fn a_secret_never_reaches_a_debug_line() {
