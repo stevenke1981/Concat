@@ -34,6 +34,12 @@ case-insensitive, and each word can match a different field: `ocean Flow`
 finds ocean assets made with Google Flow. Clearing the search restores the
 whole shelf in its original order; searching does not change any saved asset.
 
+If a generated or downloaded file cannot be added to the library, Concat keeps
+it in the app data folder's `generate/` job folder, including after a restart.
+You can import those files again after resolving the error. Only empty job
+folders are removed automatically; remove recovered leftovers yourself when
+you no longer need them.
+
 ## 2. Providers
 
 | Provider | Makes | Who pays | What you need |

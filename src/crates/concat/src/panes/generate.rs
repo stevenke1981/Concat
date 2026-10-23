@@ -19,7 +19,8 @@
 //! shelf shows a copy of the list, read again after each of them, with a
 //! `try_lock` so the window never waits on a sync. What a generation makes
 //! is written into a staging folder under the app's data folder and moved
-//! into the library from there; the staging folder is removed after.
+//! into the library from there; an empty staging folder is removed after.
+//! Files that could not be indexed stay there, including across launches.
 //!
 //! A card is laid on the timeline the way a sound from the Audio page is:
 //! copied into the project's own `assets` folder and imported into the bin
@@ -267,11 +268,11 @@ pub struct GeneratePane {
 }
 
 impl GeneratePane {
-    /// The page as this machine's library has it. Staging left by a run
-    /// that ended mid-job is cleared: nothing of it was taken.
+    /// The page as this machine's library has it. Empty staging is cleared;
+    /// files left by an interrupted or failed import remain recoverable.
     pub fn open(dirs: &AppDirs) -> GeneratePane {
         let library = AssetLibrary::open(dirs);
-        let _ = std::fs::remove_dir_all(staging(dirs));
+        cleanup_staging(&staging(dirs));
         GeneratePane {
             library_dir: library.dir.clone(),
             shelf: library.assets.clone(),
@@ -738,7 +739,7 @@ impl GeneratePane {
                     on_ui(move |studio, _, _| studio.handle(Msg::Generate(msg)));
                 };
                 let result = follow_bridged(id, &events, &cancel, &library, &origin, &post);
-                let _ = std::fs::remove_dir_all(&out_dir);
+                cleanup_staging(&out_dir);
                 on_ui(move |studio, _, _| {
                     studio.handle(Msg::Generate(GenerateMsg::Finished(id, result)));
                 });
@@ -795,7 +796,7 @@ impl GeneratePane {
                         _ => Ok(taken),
                     }
                 });
-                let _ = std::fs::remove_dir_all(&out_dir);
+                cleanup_staging(&out_dir);
                 on_ui(move |studio, _, _| {
                     studio.handle(Msg::Generate(GenerateMsg::Finished(id, result)));
                 });
@@ -1028,7 +1029,7 @@ impl GeneratePane {
                     if let Err(error) = drive::save_tokens(&dirs, &tokens) {
                         log::warn!("drive: {error}");
                     }
-                    let _ = std::fs::remove_dir_all(&staging);
+                    cleanup_staging(&staging);
                     result
                 }
             };
@@ -1363,6 +1364,16 @@ fn staging(dirs: &AppDirs) -> PathBuf {
     dirs.data.join("generate")
 }
 
+/// Only an empty job folder is disposable: a file left here may be the only
+/// copy of a generation or download whose library index could not be saved.
+fn cleanup_staging(dir: &Path) {
+    if let Err(error) = std::fs::remove_dir(dir)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log::info!("generate: kept staging at {}: {error}", dir.display());
+    }
+}
+
 /// The library's lock, even after a thread holding it panicked: the index
 /// on disk is written whole or not at all, so what is in memory is still a
 /// library.
@@ -1541,6 +1552,51 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unindexed_generation_survives_cleanup_and_reopening() {
+        let root = std::env::temp_dir().join(format!(
+            "concat-generate-recovery-{}-{}",
+            std::process::id(),
+            random_hex(6)
+        ));
+        let dirs = AppDirs::under(&root);
+        let out_dir = staging(&dirs).join("job");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let source = out_dir.join("made.png");
+        let picture = b"\x89PNG\r\n\x1a\nrecoverable picture";
+        std::fs::write(&source, picture).unwrap();
+
+        let mut library = AssetLibrary::open(&dirs);
+        std::fs::create_dir_all(library.dir.join("assets.json.partial")).unwrap();
+        assert!(library.take(&source, Origin::default(), false).is_err());
+        cleanup_staging(&out_dir);
+        let reopened = GeneratePane::open(&dirs);
+
+        assert!(
+            reopened.shelf.is_empty(),
+            "the failed import was not indexed"
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), picture);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn empty_job_staging_is_removed() {
+        let root = std::env::temp_dir().join(format!(
+            "concat-generate-cleanup-{}-{}",
+            std::process::id(),
+            random_hex(6)
+        ));
+        let dirs = AppDirs::under(&root);
+        let out_dir = staging(&dirs).join("job");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        cleanup_staging(&out_dir);
+        assert!(!out_dir.exists());
+        cleanup_staging(&staging(&dirs));
+        assert!(!staging(&dirs).exists());
+        std::fs::remove_dir(&root).unwrap();
+    }
 
     fn searchable_asset(id: &str, name: &str, prompt: &str, provider: &str) -> Asset {
         Asset {
