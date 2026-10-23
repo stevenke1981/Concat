@@ -1,0 +1,22 @@
+{
+    "source_head_sha":  "795503a6b1f9015c7b92527caa9e4d85f057408c",
+    "binary":  "E:\\concat-deps\\target-app\\debug\\concat.exe",
+    "binary_sha256":  "c7d4cc7add90a669edc33a6effab67f90a500be447753482b34e56c486ad3c79",
+    "pid":  18696,
+    "observed_at":  "2026-10-23T16:31:17.0641343+08:00",
+    "alive_after_seconds":  8,
+    "was_alive":  true,
+    "window_handle":  263318,
+    "window_title":  "Concat",
+    "close_requested":  true,
+    "closed_gracefully":  true,
+    "exit_code":  0,
+    "runtime_errors":  [
+
+                       ],
+    "startup_result":  "PASS",
+    "window_result":  "PASS",
+    "graceful_close_result":  "PASS",
+    "pixels_and_search_interaction":  "NOT_RUN",
+    "app_data":  "E:\\concat-deps\\optimization-20261023\\normal-runtime"
+}

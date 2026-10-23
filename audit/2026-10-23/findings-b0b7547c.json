@@ -1,0 +1,48 @@
+{
+  "task_id": "TASK-FINAL-CHECK",
+  "actor_instance": "/root/final_check",
+  "receiver_instance": "/root",
+  "base_sha": "2535c2c3ed453e79b4339ecb438f0284dcf2adcf",
+  "head_sha": "b0b7547c1baecdfe3f94b21bbbcb6fc06671a2dc",
+  "result": "FAIL",
+  "scope": "One bounded independent check of bridge cancellation, asset persistence and affected callers, shelf search, and locale calls",
+  "findings": [
+    {
+      "id": "CONCAT-REVIEW-001",
+      "priority": "P2",
+      "path": "extensions/concat-bridge/background.js",
+      "line": 145,
+      "title": "Queued done reports success after a closed tab's active transfer is aborted",
+      "evidence": "In-memory harness using the existing mock bridge: fileUrl then done, wait for stalled fetch, disconnect; downloadAborted=true and the only terminal request was /v1/jobs/close-queued-done/done",
+      "command": "node --input-type=module - (in-memory harness reusing existing fixture setup)",
+      "cwd": "E:/Concat",
+      "exit_code": 1,
+      "result": "FAIL",
+      "next_owner": "/root",
+      "status": "DELIVERED_FOR_FIX"
+    },
+    {
+      "id": "CONCAT-REVIEW-002",
+      "priority": "P1",
+      "path": "src/crates/concat/src/panes/generate.rs",
+      "line": 798,
+      "related_lines": [274, 741, 1031],
+      "title": "Generation and sync cleanup delete the source retained after an index save failure",
+      "evidence": "Library failure-preservation regression and direct caller trace: unconditional remove_dir_all after failed take/take_as, plus recursive staging removal on reopen",
+      "runtime_reproduction_by_reviewer": false,
+      "result": "FAIL",
+      "next_owner": "/root",
+      "status": "ROOT_CONFIRMED_FIX_IN_PROGRESS"
+    }
+  ],
+  "not_run": [
+    "Review of any revision after b0b7547c1baecdfe3f94b21bbbcb6fc06671a2dc",
+    "Cargo checks by this reviewer",
+    "Rendered GUI interaction",
+    "Live browser/provider/cloud-account validation",
+    "Remote CI conclusion"
+  ],
+  "source_files_modified": false,
+  "external_side_effects": {"authorized": false, "performed": false},
+  "next_action": "Root fixes concrete findings and validates affected regressions without starting another review chain"
+}

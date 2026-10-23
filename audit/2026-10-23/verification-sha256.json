@@ -1,0 +1,236 @@
+{
+  "source_head_sha": "795503a6b1f9015c7b92527caa9e4d85f057408c",
+  "hash_algorithm": "SHA-256",
+  "local_files": [
+    {
+      "path": "audit/2026-10-23/delivery.md",
+      "sha256": "46039529af41c04dc8f850f9542281266f7b3351597cf6d93863b736da27d3ca"
+    },
+    {
+      "path": "audit/2026-10-23/dispatch-plan.md",
+      "sha256": "cf177f579b4daccb6dcaa0f360345ef5b5aaed38773c9577f08cc05ebba0b311"
+    },
+    {
+      "path": "audit/2026-10-23/findings-b0b7547c.json",
+      "sha256": "595f9f7971f6aebe308d0513698e55bc5e02191c40b5427e496b21dfd6ba91be"
+    },
+    {
+      "path": "audit/2026-10-23/handoff.json",
+      "sha256": "221dbb8a7387a197f4d41b9d5c7cd6095c8713ea828d842a226c9ae69780f41c"
+    },
+    {
+      "path": "audit/2026-10-23/native-window.json",
+      "sha256": "b4236da942ba1a07fa0cfbab01f292a01afabb52e42ff304000844fa3c938280"
+    },
+    {
+      "path": "audit/2026-10-23/review-b0b7547c.md",
+      "sha256": "553485c197892abeef5044cd076ffc8889290f52fc92dce3c37a0ca2b54bff4e"
+    },
+    {
+      "path": "extensions/concat-bridge/background.js",
+      "sha256": "e82c43c569a363462ba073204001c7c5f2b00492a6715a49e9d2b3415ad9cf81"
+    },
+    {
+      "path": "extensions/concat-bridge/README.md",
+      "sha256": "caa2bc089dc7bb2dc922352624b1267af8819dd7f2d7fcd4c1afd614acd6f55c"
+    },
+    {
+      "path": "extensions/concat-bridge/test/background.test.mjs",
+      "sha256": "ba9f99c76909e77d71cc6454567ba4efc64209372728c3af221adca580b46f71"
+    },
+    {
+      "path": "src/crates/concat/locales/ar.json",
+      "sha256": "a2cb3278bea60d5933134c035deccb3d91430ff9551a1c15b69332a9e892739d"
+    },
+    {
+      "path": "src/crates/concat/locales/az.json",
+      "sha256": "ebc0844cec2314a904c4825718509912119db144065e592bc263db11bea8f410"
+    },
+    {
+      "path": "src/crates/concat/locales/bn.json",
+      "sha256": "792a7f4e7bf4ba6f9697d03d371195178724ff7011ce023dda1017f12399f1ac"
+    },
+    {
+      "path": "src/crates/concat/locales/de.json",
+      "sha256": "aaee8c4e0d58a7c9ce052535c38cb2717f346e65f5b12456d9da8b849697dc93"
+    },
+    {
+      "path": "src/crates/concat/locales/en.json",
+      "sha256": "81f412a28f1e091483021f83ab34e21ebd43f5da27ae7a4d183951d06f982355"
+    },
+    {
+      "path": "src/crates/concat/locales/es.json",
+      "sha256": "0cf5b568faaf714a65c056d8026504520a1a17e2e487cc40be09a53877d20957"
+    },
+    {
+      "path": "src/crates/concat/locales/fa.json",
+      "sha256": "5528dfe211a906e5d9dbc2a8eca5258496468a19f75a8afeb9dcd4d5e737247f"
+    },
+    {
+      "path": "src/crates/concat/locales/fr.json",
+      "sha256": "bf0f439839d4748fef72b78c18b5f7149901046e3d8b9772b06c52f64616ad61"
+    },
+    {
+      "path": "src/crates/concat/locales/he.json",
+      "sha256": "f0c9c93a998fe51b824c9b0a2b34eef6c45811d24c87191eca6034a5b0600f67"
+    },
+    {
+      "path": "src/crates/concat/locales/hi.json",
+      "sha256": "539a9ecda9c55eab4f8cac4101316885c3824c0049b7a73ac7081dda88dc07bc"
+    },
+    {
+      "path": "src/crates/concat/locales/hr.json",
+      "sha256": "c8181cb4d32e947813747035000b02ab4d62c6c3dcf24d96571749e3cdfbb4fd"
+    },
+    {
+      "path": "src/crates/concat/locales/id.json",
+      "sha256": "b82c45c8175f03df3eef0507b4c9bb6fedca1a22b2d2830cb657e2f64a712c71"
+    },
+    {
+      "path": "src/crates/concat/locales/it.json",
+      "sha256": "32785604483a46d79a4966a3988c79840d56669b2819f4239cc979c1d8c3abe3"
+    },
+    {
+      "path": "src/crates/concat/locales/ja.json",
+      "sha256": "b56f4cad2d5fc8b90b4ff0babe9a31cf98bb67c5154d7f8c4ca57ef48f473342"
+    },
+    {
+      "path": "src/crates/concat/locales/ko.json",
+      "sha256": "834b3bd3db9bf3644f378b18551f99c072197062c64998d73b3d142ffec80500"
+    },
+    {
+      "path": "src/crates/concat/locales/nl.json",
+      "sha256": "1c7b1ecbe8ff43c0175deb33f792b0af1887abd513e5a66aa67e3f01d25dda21"
+    },
+    {
+      "path": "src/crates/concat/locales/pl.json",
+      "sha256": "4212b6e60f3c058f052201e27368997d8e95dec1a7e332682c6e6d10bcc9e7b0"
+    },
+    {
+      "path": "src/crates/concat/locales/pt-BR.json",
+      "sha256": "5e43c6d9f969f466334158ad44ead63be58ab5f269f8a8f8389ca1c5f2f096de"
+    },
+    {
+      "path": "src/crates/concat/locales/ru.json",
+      "sha256": "878b11354909e4ccd7041ed82f6a61674fe349d5de779be67abc088a6e0c172e"
+    },
+    {
+      "path": "src/crates/concat/locales/th.json",
+      "sha256": "9e4a50dd81f4aeb148817cb6e90a581cbd680cb24995b479552476b41d3e0a16"
+    },
+    {
+      "path": "src/crates/concat/locales/tr.json",
+      "sha256": "183988bb2e65f88330b7642ece66d79a4eb8da905fee1319458fd76875aefb89"
+    },
+    {
+      "path": "src/crates/concat/locales/uk.json",
+      "sha256": "939211998d26d148193becffa7ea9107430f37521a1e53d7024167bf6fede54d"
+    },
+    {
+      "path": "src/crates/concat/locales/ur.json",
+      "sha256": "71e5ada6a62697152161ed3ed425bfc2ef0ebd11f91a4707655a7a63c6b23546"
+    },
+    {
+      "path": "src/crates/concat/locales/vi.json",
+      "sha256": "54360f77509b46728316305a3d0210d490cf777c8d57fba0b2e0dc808a9e10e8"
+    },
+    {
+      "path": "src/crates/concat/locales/zh-Hans.json",
+      "sha256": "09d0c38375ed33e70b5eb55d3cc27b31a780610c508ff6a4ce6cb7af8b79bf08"
+    },
+    {
+      "path": "src/crates/concat/locales/zh-TW.json",
+      "sha256": "46cb08f87eeb435463086ffcb6fa683ec3bfee0c07e1e2161c9f3304e9868015"
+    },
+    {
+      "path": "src/crates/concat/src/lib.rs",
+      "sha256": "14427fe0f7bcacc0f9b10aca9bd2c7436ae0d18d5c93d36b5a246e20686b8c4b"
+    },
+    {
+      "path": "src/crates/concat/src/panes/generate.rs",
+      "sha256": "e7098a019514e39ac8e928bdc172c2de4aa13d208c35062491ff7924f2b51f1b"
+    },
+    {
+      "path": "src/crates/concat/ui/workspace/generate-page.slint",
+      "sha256": "9f6f745700a98eaa6a28662048e424d0ad875c862ec8d62e0cf7dc3e892b1a91"
+    },
+    {
+      "path": "src/crates/concat-effects/packages/concat.halation/effect.wgsl",
+      "sha256": "9a016024149405a7890b56a92c3a9967f0b682e8902aca84df16cdbd0ce24f71"
+    },
+    {
+      "path": "src/crates/concat-host/src/assets.rs",
+      "sha256": "0fcf6bc7b1c1a4bdf0904db38001af4f65467d0a261af8ba676607698ae4eb38"
+    },
+    {
+      "path": "src/crates/concat-host/src/generate/chatgpt.rs",
+      "sha256": "c93b61a39da742b51007065190e02447add1cef8d08ba3d10b99b4a16ded3da3"
+    }
+  ],
+  "external_logs": [
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\locales.log",
+      "sha256": "8ace271e35087b85210db31cd765740b46728a5c4e3b2f2e9f4dcb27d1eb7bb1"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\models.log",
+      "sha256": "6c8ddefd01b19af45d4859d066de742d9e28fa471a4aa8730e5be84ab125d67e"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\bridge-tests.log",
+      "sha256": "aa37ff59d128f2b53a0ea376fe6fb43cd43ba50fc7142f5bd5ef69afbf22c121"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\bridge-syntax.log",
+      "sha256": "67d80f18f51b8307aad11711ac4b9ef5e17b734c238a27a30b9fadaf84793c5e"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\assets-red.log",
+      "sha256": "453a5dce7b4612459a0c2873ab804206ae8b4bb1745bc29542feaec4cb4379df"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\assets-green.log",
+      "sha256": "cd42770677689652c6cde16b53f3e7c3de45c29e02fa23b800e719fd7dfc21c9"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\workspace-tests.log",
+      "sha256": "96fbe7f8b79ed0201f9fcadac23bd3b602d5d317be31745b50d87cb79074ed1b"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\affected-gpu-tests.log",
+      "sha256": "093eb85447724b74fe3c6f853857ffbfefc36ec48b2b3f897d252d4b6c2f45b0"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\clippy-final.log",
+      "sha256": "ec9cc71a424d63ee6465f2e2aebfd2d3b4ee49ff11de82f8f4c95127d3b6d5a9"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\affected-clippy.log",
+      "sha256": "6e3cae071ed79ddfa67c2d20f1c1f3c62267133e3c4f6c59388c686cbca85546"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\app-check-final.log",
+      "sha256": "9ef2af9d72d0da5cfb6f62fec9ce10f0c49e6a48fa340d446fde24a78e21d238"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\app-build-final.log",
+      "sha256": "92f4191d67834919d4ac21e93f3dae81e515593bb2bfdcd70d6eb28df98a19b8"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\smoke-final.log",
+      "sha256": "a7072f51b14ba74e85a228c4c6a8b7bb123d1497cd3800ed835ca897be20d3f8"
+    },
+    {
+      "path": "E:\\concat-deps\\optimization-20261023\\native-window.json",
+      "sha256": "b4236da942ba1a07fa0cfbab01f292a01afabb52e42ff304000844fa3c938280"
+    }
+  ],
+  "binary": {
+    "path": "E:/concat-deps/target-app/debug/concat.exe",
+    "sha256": "c7d4cc7add90a669edc33a6effab67f90a500be447753482b34e56c486ad3c79"
+  }
+}

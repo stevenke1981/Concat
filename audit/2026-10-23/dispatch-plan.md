@@ -17,4 +17,6 @@ Odin is bound to the actual `E:/Concat` root with read-only permissions. Live pr
 
 Required gates: workspace format, locales and model inventory, workspace Clippy/tests as required by CONTRIBUTING, affected regression tests, `cargo check -p concat`, native GUI build/startup, one final independent check, explicit `origin main` push and remote verification. GUI interaction depends on available desktop capture; any unavailable step must be reported as NOT_RUN. Live paid generation and account-bound cloud operations are outside the validation scope.
 
-Current state: upstream merged without conflicts; implementation tasks in progress. No release or deployment is requested.
+Follow-up evidence: the full Windows workspace run exposed a real FXC halation shader compilation failure and a cancellation fixture that depended on PATH. The Rust worker received a bounded shader task in the existing independent worktree; root owns the fixture correction. Only the demonstrated halation fault was integrated (the worker's optional corona change was excluded). Regression validation covers the affected host/effects/export/render/project crates with the real GPU enabled, without repeating another complete review.
+
+Current state: implementations committed; local gates passed, including native window startup/exit and the affected real-GPU regression suite. The final step is committing this evidence and pushing/verifying the existing origin/main. No release or deployment is requested.
