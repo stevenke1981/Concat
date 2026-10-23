@@ -15,6 +15,8 @@ waits for the result, and downloads it. The files go to Concat's asset library.
 - A job goes to a content script in a Flow project tab or a chatgpt.com tab. The
   script runs the page, reports progress, and posts each file back to Concat.
 - A job can be cancelled from Concat; the tab is told to stop.
+- Cancelling a job stops its active downloads and uploads. Closing a tab stops
+  its transfers and reports the job as failed.
 
 ## Install
 
@@ -101,8 +103,10 @@ npm run check     # node --check on every script
 
 The tests cover the protocol (including a mock of Concat's bridge over HTTP), the
 service worker driven through a stubbed `chrome` API, and the content scripts
-loaded into a `vm` context with a stub page. They do **not** exercise the live
-Flow or ChatGPT pages; that can only be checked in the browser.
+loaded into a `vm` context with a stub page. The worker tests include cancellation
+during stalled downloads and uploads, and closing a tab during a download.
+They do **not** exercise the live Flow or ChatGPT pages; that can only be checked
+in the browser.
 
 ## Protocol
 

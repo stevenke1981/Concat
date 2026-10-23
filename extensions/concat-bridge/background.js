@@ -142,6 +142,7 @@ function onPageGone(page) {
   pages.delete(page.id);
   const run = page.job;
   if (run && !run.ended) {
+    run.controller.abort();
     enqueue(run, () => endRun(run, { error: "the tab was closed" }));
   }
   kick();
@@ -157,6 +158,9 @@ function enqueue(run, step) {
     try {
       await step();
     } catch (error) {
+      // Cancel and disconnect abort transfers first, so their terminal step can
+      // run next instead of waiting behind a stalled download or upload.
+      if (run.controller.signal.aborted) return;
       // A post refused as a conflict means Concat already ended the job (a cancel).
       // That is what the person asked for, so it is not shown as an error.
       const expected = error instanceof ConcatError && error.kind === "conflict";
@@ -168,7 +172,9 @@ function enqueue(run, step) {
 
 async function reportProgress(run, message) {
   try {
-    await postProgress(await currentSettings(), run.id, message.message, message.fraction);
+    await postProgress(await currentSettings(), run.id, message.message, message.fraction, {
+      signal: run.controller.signal,
+    });
   } catch (error) {
     // A progress note is not worth failing a job for; the file or done step decides.
     warn(`progress for job ${run.id} was not delivered: ${messageOf(error)}`);
@@ -177,12 +183,17 @@ async function reportProgress(run, message) {
 
 async function saveFile(run, index, name, mediaType, base64) {
   const bytes = base64ToBytes(base64);
-  await postFile(await currentSettings(), run.id, {
-    bytes,
-    mediaType: mediaType || "",
-    name: name || `${run.site}-${index}`,
-    index: Number.isInteger(index) ? index : undefined,
-  });
+  await postFile(
+    await currentSettings(),
+    run.id,
+    {
+      bytes,
+      mediaType: mediaType || "",
+      name: name || `${run.site}-${index}`,
+      index: Number.isInteger(index) ? index : undefined,
+    },
+    { signal: run.controller.signal },
+  );
 }
 
 // The page could not hold a large file (or could not read it), so it gives us a
@@ -192,17 +203,22 @@ async function saveFromUrl(run, index, url) {
   if (typeof url !== "string" || !/^https:\/\//i.test(url)) {
     throw new Error("the page gave a file address the bridge cannot fetch");
   }
-  const response = await fetch(url, { credentials: "include" });
+  const response = await fetch(url, { credentials: "include", signal: run.controller.signal });
   if (!response.ok) {
     throw new Error(`the file's address answered ${response.status}`);
   }
   const blob = await response.blob();
-  await postFile(await currentSettings(), run.id, {
-    bytes: new Uint8Array(await blob.arrayBuffer()),
-    mediaType: blob.type || response.headers.get("content-type") || "",
-    name: `${run.site}-${index}`,
-    index: Number.isInteger(index) ? index : undefined,
-  });
+  await postFile(
+    await currentSettings(),
+    run.id,
+    {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      mediaType: blob.type || response.headers.get("content-type") || "",
+      name: `${run.site}-${index}`,
+      index: Number.isInteger(index) ? index : undefined,
+    },
+    { signal: run.controller.signal },
+  );
 }
 
 /**
@@ -211,7 +227,12 @@ async function saveFromUrl(run, index, url) {
  */
 async function endRun(run, { error = "", silent = false } = {}) {
   if (run.ended) return;
+  if (run.cancelRequested) {
+    error = "cancelled";
+    silent = true;
+  }
   run.ended = true;
+  run.controller.abort();
   clearInterval(run.watch);
   clearTimeout(run.graceTimer);
   runs.delete(run.id);
@@ -266,6 +287,7 @@ function dispatch(site, job) {
     page,
     ended: false,
     cancelRequested: false,
+    controller: new AbortController(),
     queue: Promise.resolve(),
     watch: null,
     graceTimer: null,
@@ -296,8 +318,9 @@ async function checkJob(run) {
 }
 
 function requestCancel(run) {
-  if (run.cancelRequested) return;
+  if (run.ended || run.cancelRequested) return;
   run.cancelRequested = true;
+  run.controller.abort();
   post(run.page, { type: "cancel", id: run.id });
   // If the page never reports back, release the job anyway so the tab is not stuck.
   run.graceTimer = setTimeout(

@@ -89,6 +89,28 @@ async function until(check, ms = 9000) {
   }
 }
 
+/** Holds one transfer open until it is aborted or the test releases it. */
+function stalledFetch(url) {
+  const realFetch = globalThis.fetch;
+  let request;
+  let release;
+  globalThis.fetch = (address, options) => {
+    if (address !== url) return realFetch(address, options);
+    request = options;
+    return new Promise((resolve, reject) => {
+      release = () => resolve(new Response(PNG, { headers: { "Content-Type": "image/png" } }));
+      request?.signal?.addEventListener("abort", () => reject(request.signal.reason), { once: true });
+    });
+  };
+  return {
+    get request() { return request; },
+    restore() {
+      globalThis.fetch = realFetch;
+      release?.();
+    },
+  };
+}
+
 test("a job goes from the bridge to the page, and its file and done come back", async () => {
   const bridge = await startMockBridge();
   storage.port = bridge.port;
@@ -146,6 +168,88 @@ test("a cancel in Concat reaches the page, and the page's stop is not an error",
     const current = await status();
     assert.equal(current.lastError, "", "a cancel is not shown as an error");
   } finally {
+    page.disconnect();
+    await bridge.close();
+  }
+});
+
+test("cancelling a job aborts its stalled download and frees the tab", async () => {
+  const bridge = await startMockBridge();
+  storage.port = bridge.port;
+  const page = connect("flow");
+  const downloadUrl = "https://example.test/cancel-stalled-download.png";
+  const download = stalledFetch(downloadUrl);
+  try {
+    bridge.addJob({ ...JOB, id: "cancel-download" });
+    await until(() => page.posted.some((message) => message.type === "job"));
+    page.send({ type: "fileUrl", id: "cancel-download", index: 1, url: downloadUrl });
+    await until(() => download.request);
+    bridge.setState("cancel-download", "cancelled");
+    await until(() => page.posted.some((message) => message.type === "cancel"));
+    assert.equal(download.request.signal?.aborted, true, "cancellation aborts the in-flight file download");
+
+    page.send({ type: "fail", id: "cancel-download", error: "cancelled" });
+    await until(() => bridge.calls.some((call) => call.path === "/v1/jobs/cancel-download/fail"));
+    assert.equal((await status()).sites.flow.busy, false, "the cancelled download releases the tab");
+    assert.equal((await status()).lastError, "", "the cancel is not shown as a download failure");
+    assert.equal(bridge.calls.some((call) => call.path === "/v1/jobs/cancel-download/file"), false);
+
+    bridge.addJob({ ...JOB, id: "after-cancel-download" });
+    await until(() => page.posted.some((message) => message.job?.id === "after-cancel-download"));
+    page.send({ type: "done", id: "after-cancel-download" });
+    await until(() => bridge.calls.some((call) => call.path === "/v1/jobs/after-cancel-download/done"));
+  } finally {
+    download.restore();
+    page.disconnect();
+    await bridge.close();
+  }
+});
+
+test("cancelling an upload discards a queued done and releases the tab", async () => {
+  const bridge = await startMockBridge();
+  storage.port = bridge.port;
+  const page = connect("flow");
+  const upload = stalledFetch(`http://127.0.0.1:${bridge.port}/v1/jobs/cancel-upload/file`);
+  try {
+    bridge.addJob({ ...JOB, id: "cancel-upload" });
+    await until(() => page.posted.some((message) => message.type === "job"));
+    page.send({ type: "file", id: "cancel-upload", index: 1, mediaType: "image/png", base64: PNG.toString("base64") });
+    page.send({ type: "done", id: "cancel-upload" });
+    await until(() => upload.request);
+    bridge.setState("cancel-upload", "cancelled");
+    await until(() => page.posted.some((message) => message.type === "cancel"));
+    assert.equal(upload.request.signal?.aborted, true, "cancellation aborts the in-flight upload");
+    await until(() => bridge.calls.some((call) => call.path === "/v1/jobs/cancel-upload/fail"));
+    assert.equal(bridge.calls.some((call) => call.path === "/v1/jobs/cancel-upload/done"), false);
+    const current = await status();
+    assert.equal(current.sites.flow.busy, false);
+    assert.equal(current.lastError, "");
+  } finally {
+    upload.restore();
+    page.disconnect();
+    await bridge.close();
+  }
+});
+
+test("closing a tab aborts its stalled download and reports the close promptly", async () => {
+  const bridge = await startMockBridge();
+  storage.port = bridge.port;
+  const page = connect("flow");
+  const downloadUrl = "https://example.test/closed-tab-download.png";
+  const download = stalledFetch(downloadUrl);
+  try {
+    bridge.addJob({ ...JOB, id: "close-download" });
+    await until(() => page.posted.some((message) => message.type === "job"));
+    page.send({ type: "fileUrl", id: "close-download", index: 1, url: downloadUrl });
+    await until(() => download.request);
+    page.disconnect();
+    assert.equal(download.request.signal?.aborted, true);
+    await until(() => bridge.calls.some((call) => call.path === "/v1/jobs/close-download/fail"), 1000);
+    const fail = bridge.calls.find((call) => call.path === "/v1/jobs/close-download/fail");
+    assert.deepEqual(JSON.parse(fail.body), { error: "the tab was closed" });
+    assert.equal(bridge.calls.some((call) => call.path === "/v1/jobs/close-download/file"), false);
+  } finally {
+    download.restore();
     page.disconnect();
     await bridge.close();
   }
