@@ -255,6 +255,32 @@ test("closing a tab aborts its stalled download and reports the close promptly",
   }
 });
 
+test("closing a tab with done queued fails the job instead of completing", async () => {
+  const bridge = await startMockBridge();
+  storage.port = bridge.port;
+  const page = connect("flow");
+  const downloadUrl = "https://example.test/close-queued-done.png";
+  const download = stalledFetch(downloadUrl);
+  try {
+    bridge.addJob({ ...JOB, id: "close-queued-done" });
+    await until(() => page.posted.some((message) => message.type === "job"));
+    page.send({ type: "fileUrl", id: "close-queued-done", index: 1, url: downloadUrl });
+    page.send({ type: "done", id: "close-queued-done" });
+    await until(() => download.request);
+    page.disconnect();
+    assert.equal(download.request.signal?.aborted, true);
+    await until(() => bridge.calls.some((call) => /\/close-queued-done\/(done|fail)$/.test(call.path)), 1000);
+    const terminal = bridge.calls.filter((call) => /\/close-queued-done\/(done|fail)$/.test(call.path));
+    assert.deepEqual(terminal.map((call) => call.path), ["/v1/jobs/close-queued-done/fail"]);
+    assert.deepEqual(JSON.parse(terminal[0].body), { error: "the tab was closed" });
+    assert.equal(bridge.calls.some((call) => call.path === "/v1/jobs/close-queued-done/file"), false);
+  } finally {
+    download.restore();
+    page.disconnect();
+    await bridge.close();
+  }
+});
+
 test("a tab closed in the middle of a job fails the job with that reason", async () => {
   const bridge = await startMockBridge();
   storage.port = bridge.port;

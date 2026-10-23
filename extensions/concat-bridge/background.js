@@ -142,8 +142,9 @@ function onPageGone(page) {
   pages.delete(page.id);
   const run = page.job;
   if (run && !run.ended) {
+    run.terminalError = "the tab was closed";
     run.controller.abort();
-    enqueue(run, () => endRun(run, { error: "the tab was closed" }));
+    enqueue(run, () => endRun(run));
   }
   kick();
 }
@@ -227,6 +228,8 @@ async function saveFromUrl(run, index, url) {
  */
 async function endRun(run, { error = "", silent = false } = {}) {
   if (run.ended) return;
+  // A close may arrive while a transfer and its following done are queued.
+  if (run.terminalError) error = run.terminalError;
   if (run.cancelRequested) {
     error = "cancelled";
     silent = true;
@@ -287,6 +290,7 @@ function dispatch(site, job) {
     page,
     ended: false,
     cancelRequested: false,
+    terminalError: "",
     controller: new AbortController(),
     queue: Promise.resolve(),
     watch: null,
